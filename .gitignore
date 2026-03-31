@@ -1,4 +1,4 @@
-log/
-sorted_logs/
-install/
-build/
+robot_ws/log/
+robot_ws/sorted_logs/
+robot_ws/install/
+robot_ws/build/
