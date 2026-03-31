@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<sdf version="1.7">
+  <model name="map_plane">
+    <static>true</static>
+    <link name="link">
+
+      <!-- ── Collision (keeps the robot on the ground) ───────────────────── -->
+      <collision name="collision">
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <!--
+              SIZE: adjust to match the real-world dimensions of your map image.
+              Format: <size>WIDTH HEIGHT</size>  (in metres)
+              Example: a 50 m × 40 m area → <size>50 40</size>
+            -->
+            <size>265.265022 69.789774</size>
+          </plane>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>100</mu>
+              <mu2>50</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+
+      <!-- ── Visual (textured with map.png) ─────────────────────────────── -->
+      <visual name="visual">
+        <cast_shadows>false</cast_shadows>
+        <geometry>
+          <plane>
+            <normal>0 0 1</normal>
+            <!-- Keep the same dimensions as the collision above -->
+            <size>265.265022 69.789774</size>
+          </plane>
+        </geometry>
+        <material>
+          <ambient>1 1 1 1</ambient>
+          <diffuse>1 1 1 1</diffuse>
+          <specular>0 0 0 1</specular>
+          <!--
+            PBR material — compatible with gz-sim + OGRE2.
+            The albedo_map path is relative to this model's root directory.
+            map.png is symlinked from the package root into this textures folder.
+          -->
+          <pbr>
+            <metal>
+              <albedo_map>media/materials/textures/map.png</albedo_map>
+            </metal>
+          </pbr>
+        </material>
+      </visual>
+
+    </link>
+  </model>
+</sdf>

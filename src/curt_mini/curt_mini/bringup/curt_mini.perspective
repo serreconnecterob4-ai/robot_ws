@@ -1,0 +1,180 @@
+{
+  "keys": {},
+  "groups": {
+    "mainwindow": {
+      "keys": {
+        "geometry": {
+          "repr(QByteArray.hex)": "QtCore.QByteArray(b'01d9d0cb00030000000004f0000001dd000008a2000003cf00000516000002180000087c000003a90000000000000000078000000516000002180000087c000003a9')",
+          "type": "repr(QByteArray.hex)",
+          "pretty-print": "                 |            |  "
+        },
+        "state": {
+          "repr(QByteArray.hex)": "QtCore.QByteArray(b'000000ff00000000fd00000001000000030000036700000168fc0100000003fb00000082007200710074005f0063006f006e00740072006f006c006c00650072005f006d0061006e0061006700650072005f005f0043006f006e00740072006f006c006c00650072004d0061006e0061006700650072005f005f0031005f005f0043006f006e00740072006f006c006c00650072004d0061006e0061006700650072005500690100000000000001170000011200fffffffb00000082007200710074005f0063006f006e00740072006f006c006c00650072005f006d0061006e0061006700650072005f005f0043006f006e00740072006f006c006c00650072004d0061006e0061006700650072005f005f0032005f005f0043006f006e00740072006f006c006c00650072004d0061006e0061006700650072005500690100000146000001120000000000000000fc0000011d0000024a0000022b00fffffffc0200000002fb00000058007200710074005f007000750062006c00690073006800650072005f005f005000750062006c00690073006800650072005f005f0031005f005f005000750062006c006900730068006500720057006900640067006500740100000014000001680000008a00fffffffb00000042007200710074005f0070006c006f0074005f005f0050006c006f0074005f005f0031005f005f00440061007400610050006c006f00740057006900640067006500740100000108000001a00000000000000000000003670000000000000004000000040000000800000008fc00000001000000030000000100000036004d0069006e0069006d0069007a006500640044006f0063006b00570069006400670065007400730054006f006f006c0062006100720000000000ffffffff0000000000000000')",
+          "type": "repr(QByteArray.hex)",
+          "pretty-print": "                  rqt_controller_manager__ControllerManager__1__ControllerManagerUi           rqt_controller_manager__ControllerManager__2__ControllerManagerUi            J +                                                       h                                                 g                                                      "
+        }
+      },
+      "groups": {
+        "toolbar_areas": {
+          "keys": {
+            "MinimizedDockWidgetsToolbar": {
+              "repr": "8",
+              "type": "repr"
+            }
+          },
+          "groups": {}
+        }
+      }
+    },
+    "pluginmanager": {
+      "keys": {
+        "running-plugins": {
+          "repr": "{'rqt_controller_manager/ControllerManager': [1], 'rqt_publisher/Publisher': [1]}",
+          "type": "repr"
+        }
+      },
+      "groups": {
+        "plugin__rqt_controller_manager__ControllerManager__1": {
+          "keys": {},
+          "groups": {
+            "dock_widget__ControllerManagerUi": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'Controller manager'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "cm_name": {
+                  "repr": "'/controller_manager'",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        },
+        "plugin__rqt_controller_manager__ControllerManager__2": {
+          "keys": {},
+          "groups": {
+            "dock_widget__ControllerManagerUi": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'Controller manager 2'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "'true'",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "cm_name": {
+                  "repr": "''",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        },
+        "plugin__rqt_plot__Plot__1": {
+          "keys": {},
+          "groups": {
+            "dock_widget__DataPlotWidget": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'MatPlot'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "'true'",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "autoscroll": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "plot_type": {
+                  "repr": "1",
+                  "type": "repr"
+                },
+                "topics": {
+                  "repr": "''",
+                  "type": "repr"
+                },
+                "x_limits": {
+                  "repr": "[0.0, 1.0]",
+                  "type": "repr"
+                },
+                "y_limits": {
+                  "repr": "[0.0, 1.0]",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        },
+        "plugin__rqt_publisher__Publisher__1": {
+          "keys": {},
+          "groups": {
+            "dock_widget__PublisherWidget": {
+              "keys": {
+                "dock_widget_title": {
+                  "repr": "'Message Publisher'",
+                  "type": "repr"
+                },
+                "dockable": {
+                  "repr": "True",
+                  "type": "repr"
+                },
+                "parent": {
+                  "repr": "None",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            },
+            "plugin": {
+              "keys": {
+                "publishers": {
+                  "repr": "\"[{'topic_name': '/cmd_vel', 'type_name': 'geometry_msgs/msg/TwistStamped', 'rate': 50.0, 'enabled': False, 'publisher_id': 0, 'counter': 0, 'expressions': {'/cmd_vel/twist/linear/x': '0.05', '/cmd_vel/twist/angular/z': '0.1'}}]\"",
+                  "type": "repr"
+                }
+              },
+              "groups": {}
+            }
+          }
+        }
+      }
+    }
+  }
+}

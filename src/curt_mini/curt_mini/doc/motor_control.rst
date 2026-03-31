@@ -1,0 +1,30 @@
+.. _motor_control:
+
+#############
+Motor Control
+#############
+
+The motors on CURTmini are of type MD80 from MAB robotics.
+
++-------------+----------+
+| Motor       | Drive ID |
++=============+==========+
+| Front Right | 100      |
++-------------+----------+
+| Front Left  | 101      |
++-------------+----------+
+| Back Right  | 102      |
++-------------+----------+
+| Back Left   | 103      |
++-------------+----------+
+
+A `fixed version of the candle_ros2 package`_ for ROS 2 Jazzy is provided and already installed.
+Motor control is handled through `ros2_control`_.
+A `hardware interface`_ is provided for CURTmini, bridging ros2_control to candle_ros2.
+
+The nuc also has the `mdtool`_ motor configuration software preinstalled and configured.
+
+.. _`ros2_control`: https://control.ros.org/jazzy/index.html
+.. _`fixed version of the candle_ros2 package`: https://github.com/ipa323/candle_ros2
+.. _`hardware interface`: https://github.com/ipa320/curt_mini/tree/main/ipa_ros2_control
+.. _`mdtool`: https://mabrobotics.github.io/MD80-x-CANdle-Documentation/software_package/legacy/MDTOOL.html

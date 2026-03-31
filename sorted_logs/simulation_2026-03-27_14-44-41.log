@@ -1,0 +1,41 @@
+[gazebo-1] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="curt_mini"]/link[@name="base_link"]/sensor[@name="navsat_sensor"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-1] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="curt_mini"]/link[@name="base_link"]/sensor[@name="lidar"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-1] [WARN] [1774619091.229451728] [gz_ros_control]: Waiting RM to load and initialize hardware...
+[gazebo-1] [WARN] [1774619091.388427828] [controller_manager]: Executor is not available during hardware component initialization for 'HardwareControl'. Skipping node creation!
+[gazebo-1] [WARN] [1774619091.389340287] [controller_manager]: Component 'HardwareControl' does not have read or write statistics initialized, skipping registration.
+[gazebo-1] [WARN] [1774619094.821877982] [gz_ros_control]:  Desired controller update period (0.01 s) is slower than the gazebo simulation period (0.004 s).
+[gazebo-1] [WARN] [1774619097.009416402] [controller_manager]: The use of remapping arguments to the controller_manager node is deprecated. Please use the '--controller-ros-args' argument of the spawner to pass remapping arguments to the controller node.
+[gazebo-1] [WARN] [1774619099.093717980] [controller_manager]: The use of remapping arguments to the controller_manager node is deprecated. Please use the '--controller-ros-args' argument of the spawner to pass remapping arguments to the controller node.
+[ekf_node-10] [ERROR] [1774619100.969848680] [ekf_local]: Warning: /imu/data is listed as an input topic, but all its update variables are false
+[navsat_transform_node-12] [ERROR] [1774619104.251400347] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774619104.351633323] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774619104.749275754] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774619104.754328010] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[planner_server-14] [ERROR] [1774619127.142841651] [planner_server]: Inflation layer either not found or inflation is not set sufficiently for optimized non-circular collision checking capabilities. It is HIGHLY recommended to set the inflation radius to be at MINIMUM half of the robot's largest cross-section. See github.com/ros-planning/navigation2/tree/main/nav2_smac_planner#potential-fields for full instructions. This will substantially impact run-time performance.
+[bt_navigator-16] [WARN] [1774619127.865341013] [bt_navigator]: Error_code parameters were not set. Using default values of: follow_path_error_code compute_path_error_code
+[bt_navigator-16] Make sure these match your BT and there are not other sources of error codes youreported to your application
+[rviz2-7] [ERROR] [1774619128.507204419] [rviz2]: rviz/glsl120/indexed_8bit_image.vert
+[controller_server-15] [WARN] [1774619200.216163043] [controller_server]: No goal checker was specified in parameter 'current_goal_checker'. Server will use only plugin loaded general_goal_checker . This warning will appear once.
+[controller_server-15] [WARN] [1774619200.216208482] [controller_server]: No progress checker was specified in parameter 'current_progress_checker'. Server will use only plugin loaded progress_checker . This warning will appear once.
+[controller_server-15] [WARN] [1774619215.020681578] [controller_server]: Control loop missed its desired rate of 10.0000 Hz. Current loop rate is 13.8889 Hz.
+[ekf_node-10] [ERROR] [1774619494.800235217] [ekf_local]: Failed to meet update rate! Took 0.22400000000000000466seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-10] [ERROR] [1774620383.958917792] [ekf_local]: Failed to meet update rate! Took 0.11999999999999999556seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620383.966204371] [ekf_global]: Failed to meet update rate! Took 0.068000000000000004885seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.010122421] [ekf_global]: Failed to meet update rate! Took 0.41199999999999997735seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.035696900] [ekf_global]: Failed to meet update rate! Took 0.18800000000000000044seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.190549952] [ekf_global]: Failed to meet update rate! Took 0.10399999999999999523seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.209763912] [ekf_global]: Failed to meet update rate! Took 0.18399999999999999689seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-10] [ERROR] [1774620384.302278209] [ekf_local]: Failed to meet update rate! Took 0.24799999999999999822seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.309759502] [ekf_global]: Failed to meet update rate! Took 0.29199999999999998179seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.358290769] [ekf_global]: Failed to meet update rate! Took 0.16000000000000000333seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.389766133] [ekf_global]: Failed to meet update rate! Took 0.31199999999999999956seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.394208536] [ekf_global]: Failed to meet update rate! Took 0.13600000000000000977seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.408325932] [ekf_global]: Failed to meet update rate! Took 0.60399999999999998135seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.461854501] [ekf_global]: Failed to meet update rate! Took 1.0960000000000000853seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.504445643] [ekf_global]: Failed to meet update rate! Took 2.2679999999999997939seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.550458312] [ekf_global]: Failed to meet update rate! Took 0.47199999999999997513seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.563975754] [ekf_global]: Failed to meet update rate! Took 0.2000000000000000111seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.628213201] [ekf_global]: Failed to meet update rate! Took 0.88800000000000001155seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[ekf_node-11] [ERROR] [1774620384.644763026] [ekf_global]: Failed to meet update rate! Took 0.29199999999999998179seconds. Try decreasing the rate, limiting sensor output frequency, or limiting the number of sensors.
+[rviz2-7] [ERROR] [1774620384.722309211] [rviz2]: Lookup would require extrapolation into the past.  Requested time 1069.000000 but the earliest data is at time 1092.880000, when looking up transform from frame [lidar_link] to frame [map]
+[planner_server-14] [WARN] [1774620414.031800130] [plan

@@ -1,0 +1,23 @@
+[gazebo-1] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="curt_mini"]/link[@name="base_link"]/sensor[@name="navsat_sensor"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-1] [1;33mWarning [Utils.cc:132][0m [/sdf/model[@name="curt_mini"]/link[@name="base_link"]/sensor[@name="lidar"]/gz_frame_id:<urdf-string>:L0]: XML Element[gz_frame_id], child of element[sensor], not defined in SDF. Copying[gz_frame_id] as children of [sensor].
+[gazebo-1] [WARN] [1774606937.305273590] [gz_ros_control]: Waiting RM to load and initialize hardware...
+[gazebo-1] [WARN] [1774606938.298903113] [controller_manager]: Waiting for data on 'robot_description' topic to finish initialization
+[gazebo-1] [WARN] [1774606939.299040291] [controller_manager]: Waiting for data on 'robot_description' topic to finish initialization
+[gazebo-1] [WARN] [1774606939.305459927] [gz_ros_control]: Waiting RM to load and initialize hardware...
+[gazebo-1] [WARN] [1774606939.818547198] [controller_manager]: Executor is not available during hardware component initialization for 'HardwareControl'. Skipping node creation!
+[gazebo-1] [WARN] [1774606939.820975892] [controller_manager]: Component 'HardwareControl' does not have read or write statistics initialized, skipping registration.
+[gazebo-1] [WARN] [1774606944.215064003] [controller_manager]: The use of remapping arguments to the controller_manager node is deprecated. Please use the '--controller-ros-args' argument of the spawner to pass remapping arguments to the controller node.
+[gazebo-1] [WARN] [1774606944.315827142] [gz_ros_control]:  Desired controller update period (0.01 s) is slower than the gazebo simulation period (0.004 s).
+[ekf_node-10] [ERROR] [1774606945.982964080] [ekf_local]: Warning: /imu/data is listed as an input topic, but all its update variables are false
+[navsat_transform_node-12] [ERROR] [1774606949.097199562] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774606949.838498611] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774606949.864873269] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[navsat_transform_node-12] [ERROR] [1774606949.884518886] [navsat_transform]: Latitude 48.7995d more than 20d from N pole
+[gazebo-1] [WARN] [1774606950.581565682] [controller_manager]: The use of remapping arguments to the controller_manager node is deprecated. Please use the '--controller-ros-args' argument of the spawner to pass remapping arguments to the controller node.
+[planner_server-14] [ERROR] [1774606972.708533213] [planner_server]: Inflation layer either not found or inflation is not set sufficiently for optimized non-circular collision checking capabilities. It is HIGHLY recommended to set the inflation radius to be at MINIMUM half of the robot's largest cross-section. See github.com/ros-planning/navigation2/tree/main/nav2_smac_planner#potential-fields for full instructions. This will substantially impact run-time performance.
+[bt_navigator-16] [WARN] [1774606973.916780838] [bt_navigator]: Error_code parameters were not set. Using default values of: follow_path_error_code compute_path_error_code
+[bt_navigator-16] Make sure these match your BT and there are not other sources of error codes youreported to your application
+[rviz2-7] [ERROR] [1774606974.847903632] [rviz2]: rviz/glsl120/indexed_8bit_image.vert
+[controller_server-15] [WARN] [1774606992.909913348] [controller_server]: No goal checker was specified in parameter 'current_goal_checker'. Server will use only plugin loaded general_goal_checker . This warning will appear once.
+[controller_server-15] [WARN] [1774606992.910001289] [controller_server]: No progress checker was specified in parameter 'current_progress_checker'. Server will use only plugin loaded progress_checker . This warning will appear once.
+[controller_server-15] [WARN] [1774607025.010748926] [controller_server]: Control loop missed its desi

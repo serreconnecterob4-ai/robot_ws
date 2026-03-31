@@ -1,0 +1,15 @@
+# CAMERA
+
+camera_ip : 10.42.0.188
+camera_port : 554
+camera_user : admin
+camera_password : ros2_2025
+
+# TODO
+
+# changer l'IP de la caméra dans les fichiers suivants :
+# - franhf_ws/src/camera/camera/camera_control_node.py -- ligne 24
+# - franhf_ws/src/camera/camera/camera_bridge.py -- ligne 15
+# - franhf_ws/src/camera/mediamtx/mediamtx.yml -- ligne 699
+# - franhf_ws/src/camera/camera/camera_publisher.py -- ligne 12?
+# - franhf_ws/src/camera/camera/capture_manager.py -- ligne 12
