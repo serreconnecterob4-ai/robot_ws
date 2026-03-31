@@ -15,6 +15,7 @@ Comportement clé :
 import asyncio
 import threading
 import json
+import math
 import os
 import time
 
@@ -28,6 +29,8 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from navigation_interfaces.action import NavigateWaypoints
+from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import String
 from camera.capture_manager import CaptureManager
 
@@ -63,6 +66,12 @@ class WaypointActionServer(Node):
             self,
             NavigateToPose,
             'navigate_to_pose',
+            callback_group=self._cb_group,
+        )
+
+        self._controller_set_params = self.create_client(
+            SetParameters,
+            '/controller_server/set_parameters',
             callback_group=self._cb_group,
         )
 
@@ -268,8 +277,26 @@ class WaypointActionServer(Node):
                 self._is_taking_photo = False
                 self.get_logger().info('\033[93m✅ Scan terminé, reprise de la navigation...\033[0m')
 
-            elif status == GoalStatus.STATUS_ABORTED:
-                self.get_logger().warn('⚠  Waypoint inaccessible — déclenchement du repli')
+            elif status in (GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_CANCELED):
+                self.get_logger().warn(
+                    f'⚠  Navigation interrompue (statut={status}) — tentative de dégagement'
+                )
+
+                escaped = await self._reverse_unstuck_to_goal(goal_handle, 20.0)
+
+                if goal_handle.is_cancel_requested:
+                    return self._make_result(False, "Mission annulée par l'opérateur")
+
+                if escaped:
+                    self.get_logger().info(
+                        '🛟 Dégagement réussi, pause courte puis reprise sans marche arrière.'
+                    )
+                    await asyncio.sleep(2.0)
+                    continue
+
+                self.get_logger().warn(
+                    '🛟 Dégagement non concluant — déclenchement du repli maison.'
+                )
 
                 MAX_RETRIES = 3
                 reached_home = False
@@ -409,6 +436,126 @@ class WaypointActionServer(Node):
                 if self._current_nav2_gh is not None:
                     # Annulation interne : le execute_callback reprendra après
                     self._current_nav2_gh.cancel_goal_async()
+
+    async def _set_allow_reversing(self, enabled: bool) -> bool:
+        """Active/désactive dynamiquement FollowPath.allow_reversing dans Nav2."""
+        if not self._controller_set_params.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error(
+                'Service /controller_server/set_parameters indisponible'
+            )
+            return False
+
+        req = SetParameters.Request()
+        param = Parameter()
+        param.name = 'FollowPath.allow_reversing'
+        param.value = ParameterValue(
+            type=ParameterType.PARAMETER_BOOL,
+            bool_value=enabled,
+        )
+        req.parameters = [param]
+
+        try:
+            response = await self._controller_set_params.call_async(req)
+        except Exception as exc:
+            self.get_logger().error(
+                f'Échec appel set_parameters allow_reversing={enabled} : {exc}'
+            )
+            return False
+
+        if not response.results:
+            self.get_logger().error('Réponse vide de set_parameters')
+            return False
+
+        result = response.results[0]
+        if not result.successful:
+            reason = result.reason if result.reason else 'raison inconnue'
+            self.get_logger().error(
+                f'Nav2 a refusé allow_reversing={enabled} : {reason}'
+            )
+            return False
+
+        self.get_logger().info(f'allow_reversing basculé à {enabled}')
+        return True
+
+    async def _reverse_unstuck_to_goal(self, goal_handle, escape_distance: float) -> bool:
+        """
+        Active temporairement la marche arrière et retente le segment vers le goal.
+        On coupe ce mode dès que le robot s'est écarté de escape_distance (m),
+        puis on repassera en marche avant uniquement.
+        """
+        if not await self._set_allow_reversing(True):
+            return False
+
+        try:
+            if not self._nav2_client.wait_for_server(timeout_sec=5.0):
+                self.get_logger().error('NavigateThroughPoses non disponible pour le dégagement')
+                return False
+
+            start_x = self._last_robot_x
+            start_y = self._last_robot_y
+            travelled = 0.0
+
+            poses = self._create_waypoints(self._start_idx)
+            if not poses:
+                self.get_logger().warn('Aucun waypoint restant pour le dégagement')
+                return False
+
+            def _feedback_cb(feedback_msg):
+                nonlocal travelled
+                self._nav2_feedback_callback(feedback_msg)
+                fb = feedback_msg.feedback
+                x = fb.current_pose.pose.position.x
+                y = fb.current_pose.pose.position.y
+                self._last_robot_x = x
+                self._last_robot_y = y
+                travelled = math.hypot(x - start_x, y - start_y)
+
+            unstuck_goal = NavigateThroughPoses.Goal()
+            unstuck_goal.poses = poses
+
+            send_future = self._nav2_client.send_goal_async(
+                unstuck_goal,
+                feedback_callback=_feedback_cb,
+            )
+            escape_gh = await send_future
+
+            if not escape_gh.accepted:
+                self.get_logger().error('Goal de dégagement refusé par Nav2')
+                return False
+
+            self._current_nav2_gh = escape_gh
+
+            result_future = escape_gh.get_result_async()
+            while not result_future.done():
+                if goal_handle.is_cancel_requested:
+                    self.get_logger().info('🛑 Annulation pendant le dégagement')
+                    await escape_gh.cancel_goal_async()
+                    goal_handle.canceled()
+                    return False
+
+                if travelled >= escape_distance:
+                    self.get_logger().warn(
+                        f'🛟 Distance de dégagement atteinte ({travelled:.2f} m), '
+                        'arrêt du mode marche arrière.'
+                    )
+                    await escape_gh.cancel_goal_async()
+                    return True
+
+                await asyncio.sleep(0.2)
+
+            status = result_future.result().status
+            if status == GoalStatus.STATUS_SUCCEEDED:
+                self.get_logger().info('🛟 Dégagement terminé : objectif atteint avant 20 m.')
+                return True
+
+            if status == GoalStatus.STATUS_CANCELED and travelled >= escape_distance:
+                return True
+
+            self.get_logger().warn(f'🛟 Dégagement échoué (statut Nav2 : {status})')
+            return False
+
+        finally:
+            await self._set_allow_reversing(False)
 
     # ── Interface web (topics /ui/*) ─────────────────────────────────────────
 
