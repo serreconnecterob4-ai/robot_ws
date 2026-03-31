@@ -1,0 +1,8 @@
+# WEBCAM
+
+robot_webcam_flux:
+  ip: localhost
+  port: 8889
+  flux_name : mystream
+
+#

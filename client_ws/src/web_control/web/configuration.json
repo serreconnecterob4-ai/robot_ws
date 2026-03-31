@@ -1,0 +1,7 @@
+{
+  "video": {
+    "host": "localhost",
+    "port": 8889, 
+    "stream": "mystream"
+  }
+}

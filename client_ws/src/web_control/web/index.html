@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Control Center</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        /* Halo de respiration – visible uniquement lors d'une prise de photo */
+        @keyframes robotBreath {
+            0%, 100% { transform: scale(1);    opacity: 0.85; }
+            50%       { transform: scale(1.75); opacity: 0.2;  }
+        }
+        /* Aura expansive (ondulation bleue) */
+        @keyframes robotRippleOut {
+            0%   { transform: scale(1);   opacity: 0.75; }
+            100% { transform: scale(4.2); opacity: 0;    }
+        }
+        /* Cachés par défaut */
+        #robotHalo  { opacity: 0; transform-box: fill-box; transform-origin: center; }
+        #robotRipple { opacity: 0; transform-box: fill-box; transform-origin: center; }
+        /* Activés uniquement pendant is_taking_photo */
+        #robotHalo.pulsing   { animation: robotBreath    1.6s ease-in-out infinite; }
+        #robotRipple.pulsing { animation: robotRippleOut 1.8s ease-out    infinite; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/eventemitter2@6.4/lib/eventemitter2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/roslib@1/build/roslib.min.js"></script>
+</head>
+<body>
+<script>
+// Désactiver le défilement avec la molette sur body uniquement
+document.body.addEventListener('wheel', (e) => {
+    if (e.target === document.body || e.target === document.documentElement) {
+        e.preventDefault();
+    }
+}, { passive: false });
+</script>
+
+    <header>
+        <nav class="header-nav-left">
+            <a href="accueil/page_presentation.html" class="nav-btn">📋 Présentation projet</a>
+        </nav>
+        <div class="header-center">
+            <a href="index.html">
+                <img src="logo-polytech.png" alt="Logo Polytech" class="logo">
+            </a>
+        </div>
+        <div class="header-right">
+            <a href="terminal/terminal.html" class="btn-terminal-link" title="Terminal des logs">
+                <button style="background:none; border:none; font-size:1.5rem; cursor:pointer;">📟</button>
+            </a>
+            <div id="battery" class="battery-indicator" title="Charge de la batterie">🔋 ---%</div>
+            <button id="btnDarkMode" onclick="toggleDarkMode()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;" title="Mode sombre">🌙</button>
+            <button id="btnSettings" onclick="toggleSettings()" style="background:none; border:none; font-size:1.5rem; cursor:pointer;">⚙️</button>
+            <div id="status" class="disconnected">Déconnecté</div>
+        </div>
+    </header>
+
+    <div class="container">
+
+        <div class="panel video-panel column1">
+            <div class="video-wrapper">
+                <h2>🎥 Live Feed</h2>
+                <div class="video-container" id="videoContainer" onclick="toggleFullscreen()" style="position: relative;">
+                    <video id="cameraFeed" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain; background: #000;"></video>
+                </div>
+                <p id="webrtcStatus" class="hint">WebRTC: connexion...</p>
+            </div>
+            
+            <hr>
+            
+            <div class="controls-panel">
+                <div id ="robotControls">
+                <h2>🕹️ Robot</h2>
+                <div class="dpad">
+                    <button onmousedown="sendCmd('up')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('up')" ontouchend="sendCmd('stop')">⬆️<br><span class="key-hint">Z</span></button>
+                    <div>
+                        <button onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('left')" ontouchend="sendCmd('stop')">⬅️<br><span class="key-hint">Q</span></button>
+                        <button onmousedown="sendCmd('down')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('down')" ontouchend="sendCmd('stop')">⬇️<br><span class="key-hint">S</span></button>
+                        <button onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')" ontouchstart="sendCmd('right')" ontouchend="sendCmd('stop')">➡️<br><span class="key-hint">D</span></button>
+                    </div>
+                </div>
+            </div>
+            <div class="actions">
+                <button class="btn-blue" onclick="takePhoto()">📸 Photo</button>
+                <button class="btn-red" id="btnRecord" onclick="toggleVideo()">🔴 REC</button>
+            </div>
+            <div id="cameraControls">
+                <h2>📷 Caméra</h2>
+                <div class="dpad">
+                    <button onmousedown="sendPtz('up')" onmouseup="sendPtz('stop')">⬆️<br><span class="key-hint">O</span></button>
+                    <div>
+                        <button onmousedown="sendPtz('left')" onmouseup="sendPtz('stop')">⬅️<br><span class="key-hint">K</span></button>
+                        <button onmousedown="sendPtz('down')" onmouseup="sendPtz('stop')">⬇️<br><span class="key-hint">L</span></button>
+                        <button onmousedown="sendPtz('right')" onmouseup="sendPtz('stop')">➡️<br><span class="key-hint">M</span></button>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+
+        <div class="panel sliders-panel">
+            <h2>⚙️ Réglages</h2>
+            
+            <div class="slider-group">
+                <label>🚀 Vitesse Robot <span id="speedVal">50%</span></label>
+                <input type="range" min="0" max="100" value="50" id="speedSlider" oninput="updateSpeed(this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>🔍 Zoom Optique <span id="zoomVal">0%</span></label>
+                <input type="range" min="0" max="100" value="0" id="zoomSlider" oninput="updateZoom(this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>⚡ Vitesse Bras <span id="armSpeedVal">50%</span></label>
+                <input type="range" min="0" max="100" value="50" id="armSpeedSlider" oninput="updateArmSpeed(this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>🦾 Position Bras <span id="armPosVal">0%</span></label>
+                <input type="range" min="0" max="100" value="0" id="armPosSlider" oninput="updateArmPos(this.value)">
+            </div>
+
+            <div class="slider-group">
+                <label>🔊 Volume Robot <span id="robotVolumeVal">50%</span></label>
+                <input type="range" min="0" max="100" value="50" id="robotVolumeSlider" oninput="updateRobotVolume(this.value)">
+            </div>
+
+            <div class="slider-group">
+                <button class="btn-toggle" id="btnAlert" onclick="triggerAlert()" style="width: 100%;">🚨 Alerte Caméra</button>
+            </div>
+
+
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="btn-toggle" id="btnLamp" onclick="toggleLamp()" style="flex: 1;">💡 Lampe</button>
+                <button class="btn-toggle" id="btnMic" onclick="toggleMic()" style="flex: 1;">🎙️ Micro</button>
+            </div>
+
+            <button class="btn-emergency" id="btnEmergency" onclick="emergencyStop()">🛑 ARRÊT D'URGENCE</button>
+        </div>
+
+        <div class="panel map-panel">
+            <h2>
+                <a href="navig/navig.html" target="_blank" class="nav-link-button">
+                    🗺️ Navigation
+                </a>
+            </h2>
+            
+            <div class="map-area custom-map-bg" id="mapArea" style="position: relative; background-image:url('saint-cyr.png'); background-size:auto; background-repeat:no-repeat; background-position:center;">
+                <svg id="trajectoryLayer" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;">
+                    <polyline id="passedPath" fill="none" stroke="#9e9e9e" stroke-width="3" stroke-opacity="0.9" points="" />
+                    <polyline id="displayPath" fill="none" stroke="cyan" stroke-width="3" stroke-opacity="0.9" points="" />
+                    <circle id="startCircle" cx="-10" cy="-10" r="5" fill="lime" stroke="black" />
+                    <g id="waypointsGroup"></g>
+                    <!-- Position robot en direct -->
+                    <g id="robotGroup" transform="translate(-200, -200)" style="opacity: 0; pointer-events: none;">
+                        <!-- Cercle de precision (covariance) -->
+                        <circle id="robotCovariance" cx="0" cy="0" r="3"
+                            fill="rgba(46, 204, 113, 0.22)" stroke="rgba(46, 204, 113, 0.45)" stroke-width="1" />
+                        <!-- Anneau d'expansion (aura bleue lors d'une photo) -->
+                        <circle id="robotRipple" cx="0" cy="0" r="15"
+                            fill="none" stroke="#3399ff" stroke-width="2" />
+                        <!-- Halo respirant (glow bleu lors d'une photo) -->
+                        <circle id="robotHalo" cx="0" cy="0" r="13"
+                            fill="rgba(30, 130, 255, 0.45)" stroke="#5ac8ff" stroke-width="1.5" />
+                        <!-- Triangle d'orientation (decale vers l'avant) -->
+                        <polygon id="robotHeading" points="0,-15 -5,-8 5,-8"
+                            fill="#f5f5f5" stroke="#222" stroke-width="1" />
+                        <!-- Point jaune principal -->
+                        <circle id="robotDot"  cx="0" cy="0" r="7"
+                            fill="#2ecc71" stroke="#222" stroke-width="1.5" />
+                    </g>
+                </svg>
+                <!-- Mode toggle: Pan / Lock -->
+                <button id="mapModeBtn" title="Basculer mode carte" aria-pressed="false"
+                    style="position:absolute; right:8px; top:8px; z-index:25; background:rgba(0,0,0,0.45); color:white; border:none; width:40px; height:40px; padding:6px; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center;">
+                    <!-- target SVG icon -->
+                    <svg id="mapModeIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="transition: all 0.18s ease">
+                        <circle cx="12" cy="12" r="8" stroke="white" stroke-width="1.2" fill="transparent" />
+                        <circle cx="12" cy="12" r="3" fill="white" />
+                        <path d="M12 2v2" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M12 20v2" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M2 12h2" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+                        <path d="M20 12h2" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
+                    </svg>
+                </button>
+                <div id="robotOfflineBadge" class="robot-offline-badge">hors-ligne</div>
+            </div>
+            
+            <div style="margin-top: 10px; display: flex; gap: 5px;">
+                <select id="trajSelect" style="flex-grow: 1; padding: 8px; border-radius: 5px; background: #444; color: white; border: 1px solid #666;">
+                    <option value="">-- Choisir un trajet --</option>
+                </select>
+                <button class="btn-blue" onclick="loadSelectedTrajectory()" style="padding: 5px 10px; font-size: 0.8rem;" title="Afficher le trajet sélectionné">👁️</button>
+            </div>
+
+            <p id="trajInfo" style="font-size: 0.8rem; color: #c0c0c0; margin: 5px 0;">Aucun trajet chargé</p>
+
+            <button id="btnMission" class="mission-btn start" onclick="console.log('[MISSION] clic HTML direct'); toggleMission()">🚀 Lancer la mission</button>
+            <button id="btnReturnToBase" class="mission-btn start" onclick="returnToBase()">🏠 Revenir à la base</button>
+        </div>
+
+        <div class="panel gallery-panel">
+            <h2>
+                <a href="galerie/gallery.html" class="nav-link-button" style="text-decoration:none; color:inherit;">
+                    🖼️ Galerie
+                </a>
+            </h2>
+            <div id="galleryGrid" class="gallery-grid">
+            </div>
+        </div>
+        
+    </div>
+    
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="toggleSettings()">&times;</span>
+            <h2>⚙️ Réglages avancés</h2>
+            
+            <div class="slider-group">
+                <button class="btn-toggle" id="btnAutofocus" onclick="toggleAutofocus()" style="width: 100%;">🎯 Autofocus: ON</button>
+            </div>
+
+            <div class="slider-group">
+                <label>🎯 Focus Manuel <span id="focusValModal">Auto</span></label>
+                <input type="range" min="0" max="28" value="0" id="focusSliderModal" oninput="updateFocus(this.value)">
+            </div>
+
+
+            
+            <hr style="border:0; border-top:1px solid #444; margin:15px 0;">
+            
+        </div>
+    </div>
+    <script src="js/01-core-ros.js"></script>
+    <script src="js/02-PTZ.js"></script>
+    <script src="js/03-communication-avec-robot.js"></script>
+    <script src="js/04-media-gallery.js"></script>
+    <script src="js/05-trajectoires.js"></script>
+    <script src="js/06-UI-minimap.js"></script>
+</body>
+</html>

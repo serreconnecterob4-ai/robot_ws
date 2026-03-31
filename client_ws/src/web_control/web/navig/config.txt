@@ -1,0 +1,12 @@
+Pour config : 
+
+Association map.jpg <-> coordonnées gps :
+    (navig.js) rotationOriginPixel
+    (navig.js) northOffsetDegrees
+    (navig.js) degreesPerPixel
+    (navig.js) serreRectGps
+    (navig.js) serreOriginGps
+    (navig.js) serreDegreesPerPixel
+    (navig.js) serreRotationOriginPixel
+    (navig.js) serreNorthOffsetDegrees
+    (navig.js) serreScaleMultiplier
