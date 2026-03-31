@@ -1,0 +1,617 @@
+Parfait. J'ai maintenant une vue complète de l'architecture. Voici la synthèse exploitable :
+
+---
+
+## **SYNTHÈSE TECHNIQUE - ROBOT ROS2 CURTmini**
+
+### **1) RÔLE DE CHAQUE PACKAGE**
+
+| Package | Rôle | Type | Langue |
+|---------|------|------|--------|
+| **camera** | Acquisition flux RTSP caméra Reolink (pan/tilt/zoom/IR) + publication image HD/fluide + capture photo géolocalisée | Projet | Python |
+| **gps_package** | Localisation multi-capteurs : EKF Local (roues+IMU 100 Hz) → EKF Global (fusion GPS, stable, 30 Hz) | Projet | Python |
+| **openzenros2** | Driver capteur IMU/GNSS LP-Research (IMU 9-axes + GPS brut) via USB/UART/SPI | Tiers (embarqué) | C++ |
+| **candle_ros2** | Interface CAN vers moteurs MD80 (MAB Robotics) via adaptateur CANdle (services + topics) | Tiers (embarqué) | C++ |
+| **ipa_ros2_control** | Hardware interface ROS2-Control : traduit commandes vitesse (rod/roue) en ordres CAN moteurs, récupère états articulaires | Projet | C++ |
+| **curt_mini** | Configuration robot CURTmini (URDF, config contrôle, bringup). Non présent dans src mais dépendance critique | Tiers(embarqué) | - |
+| **navigation_interfaces** | Interfaces action ROS2 personnalisées : `NavigateWaypoints` (waypoints + photo) | Projet | IDL |
+| **navigation_pkg** | Navigation autonome : Nav2 (planner A* + contrôleur pur-pursuit), serveur action waypoints, Gazebo sim | Projet | Python |
+
+---
+
+### **2) PIPELINE CAPTEURS → FUSION → NAVIGATION → COMMANDE**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         CAPTEURS MATÉRIEL                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│  • Encodeurs roues (via MD80)      → /md80/joint_states (100 Hz)       │
+│  • IMU locale (OpenZen: LP-Research) → /imu/data (100 Hz ENU)          │
+│  • GPS RTK (OpenZen)               → /gps/fix (2 Hz lat/lon/alt)       │
+│  • Odométrie roues (DiffDrive)     → /wheel/odom (calculée, 100 Hz)    │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    FUSION LOCALISATON (EKF)                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────────────────────┐                                  │
+│  │ EKF LOCAL (100 Hz)               │                                  │
+│  │ Entrées: odom_roues + IMU        │                                  │
+│  │ Sortie: /odometry/local          │  ← Rapide (dérive 1-2 m/min)   │
+│  │ Délai: ~0ms (temps réel)         │                                  │
+│  │ Frame: odom → base_link          │                                  │
+│  └──────────────────────────────────┘                                  │
+│           ↓                                  ↓                          │
+│    /odometry/local              ┌──────────────────────────┐           │
+│         +                       │ NAVSAT TRANSFORM (30 Hz) │           │
+│    /gps/fix ────────────────→  │ GPS (lat/lon) → XY cart  │           │
+│         +                       │ Sortie: /odometry/gps    │           │
+│    /imu/data                    └──────────────────────────┘           │
+│         │                                 ↓                            │
+│         │                            /odometry/gps                     │
+│         └─────────────────────────────────┤                            │
+│                                           ↓                            │
+│  ┌──────────────────────────────────────────────────────────┐          │
+│  │ EKF GLOBAL (30 Hz)                                       │          │
+│  │ Entrées: odom_local + GPS_xy + IMU                       │          │
+│  │ Sortie: /odometry/filtered ← **À UTILISER POUR NAV2**   │          │
+│  │ Frame: map → odom (TF publié)                            │          │
+│  │ Précision: ±50-100 mm (GPS RTK 2 Hz limite)             │          │
+│  └──────────────────────────────────────────────────────────┘          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    NAVIGATION AUTONOME (NAV2)                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│  /odometry/filtered ─→ [PLANNER: A* 2D (costmap 2.5D)] ─→ chemin      │
+│                           ↓                                             │
+│                    [CONTROLLER: Pure Pursuit] ─→ cmd_vel (0.6 m/s max) │
+│                           ↓                                             │
+│  TWIST_MUX: arbitrage 3 sources (nav: 20, joy: 50, urgence: 10)       │
+│  Priorité: Joystick > Navigation > Arrêt sécurité                      │
+│  Output → /cmd_vel_raw                                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    CONTRÔLE ACTUATEURS                                  │
+├─────────────────────────────────────────────────────────────────────────┤
+│  /cmd_vel_raw (geometry Twist) ─→ [DiffDrive Controller] ─→ vitesses  │
+│                                        (100 Hz local)                   │
+│                                        ↓                                 │
+│  Moteurs MD80 (CAN via CANdle):                                         │
+│  • 4 × MD80 (roues avant/arrière gauche et droite)                      │
+│  • Topics cmd: /md80/motion_command (vitesse) ou PID position/impédance │
+│  • Feedback: /md80/joint_states (position, vitesse, effort)            │
+│  • Services: add_md80s, set_mode_md80s, enable/disable, zero position  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### **3) TOPICS ET NŒUDS CLÉ EXPLICITEMENT OBSERVÉS**
+
+#### **TOPICS DE CAPTEURS (inputs)**
+
+| Topic | Type | Fréquence | Source | Remarque |
+|-------|------|-----------|--------|----------|
+| `/md80/joint_states` | `sensor_msgs/JointState` | 100 Hz | candle_ros2_node (MD80) | Positions + vitesses 4 moteurs |
+| `/imu/data` | `sensor_msgs/Imu` | 100 Hz | openzen_node | ENU, accél brute (mais ignorée en EKF) |
+| `/gps/fix` | `sensor_msgs/NavSatFix` | 2 Hz | openzen_node | Lat/lon/alt (RTK quand disponible) |
+| `/wheel/odom` | `nav_msgs/Odometry` | 100 Hz | diff_drive_controller | Position X,Y estimée roues + TF |
+| `/odometry/local` | `nav_msgs/Odometry` | 100 Hz | ekf_node #1 | Rapide sans dérive court-terme |
+| `/odometry/gps` | `nav_msgs/Odometry` | 30 Hz | navsat_transform_node | GPS en coordonnées cartésiennes ENU |
+| `/odometry/filtered` | `nav_msgs/Odometry` | 30 Hz | ekf_node #2 | **Sortie fusion finale** |
+| `/camera/fluent` | `sensor_msgs/Image` | 25 Hz | camera_bridge | Flux 640×360 réseau IHM fluide |
+| `/camera/clear` | `sensor_msgs/Image` | 25 Hz | camera_bridge | Flux HD pour capture/photo |
+
+#### **TOPICS DE COMMANDE (outputs)**
+
+| Topic | Type | Vers | Contrôle |
+|-------|------|------|----------|
+| `/cmd_vel_raw` | `geometry_msgs/Twist` | diff_drive_controller | Vitesse linéaire/angulaire arbitrée (twist_mux) |
+| `/md80/motion_command` | `candle_ros2/MotionCommand` | Moteurs MD80 | Vitesse directe roues (bypass PID) |
+| `/md80/velocity_pid_command` | `candle_ros2/VelocityPidCommand` | Moteurs MD80 | Contrôle PID chaque moteur (Kp=8, Ki=1, Kd=0) |
+| `/camera/ptz` | `geometry_msgs/Point` | camera_control_node | Pan/tilt/zoom/IR |
+
+#### **NŒUDS PRINCIPAUX**
+
+| Nœud | Package | Type | Rôle |
+|------|---------|------|------|
+| `ekf_local` | robot_localization | C++ (ROS built-in) | Fusion rapide odom+IMU → /odometry/local |
+| `navsat_transform` | robot_localization | C++ (ROS built-in) | GPS lat/lon → XY cartésien |
+| `ekf_global` | robot_localization | C++ (ROS built-in) | Fusion finale (local+GPS) → /odometry/filtered |
+| `openzen_node` | openzen_driver | C++ | Capteur LP-Research IMU/GPS |
+| `candle_ros2_node` | candle_ros2 | C++ | Interface CAN moteurs MD80 |
+| `controller_manager` | ros2_control | C++ (built-in) | Arbitre contrôleurs (DiffDrive + JointState broadcaster) |
+| `diff_drive_controller` | ros2_controllers | C++ (built-in) | Convertit /cmd_vel_raw en /md80/motion_command |
+| `joint_state_broadcaster` | ros2_controllers | C++ (built-in) | Publie TF robot et joint_states agrégés |
+| `twist_mux` | twist_mux | C++ | Arbitrage prioritaire cmd_vel (joystick > nav2 > urgence) |
+| `waypoint_action_server` | navigation_pkg | Python | Serveur action NavigateWaypoints (mission + photo) |
+| `navigate_server` | nav2_bringup | C++ | Nav2 planner + controller (appuyé par /odometry/filtered) |
+| `camera_publisher` | camera | Python | Publie /camera/fluent, /camera/clear (RTSP) |
+| `camera_control_node` | camera | Python | Reçoit /camera/ptz, envoie ordres HTTP/REST caméra |
+| `gps_visualizer` (debug) | gps_package | Python | Débugage : affiche chemins GPS/odom/EKF en Matplotlib |
+
+---
+
+### **4) ORDRE LOGIQUE DE LANCEMENT (timestamps cumulatifs)**
+
+Configuration `global_launch.py` avec `TimerAction` délais:
+
+```
+T=0s    : ─────────────────────────────────────────────
+          * tf2_ros (static_transform_publisher)
+            - base_link ↔ imu_sensor
+            - base_link ↔ gps_link (z=0.10m)
+
+T=6s    : ─────────────────────────────────────────────
+          * EKF Local (ekf_filter_node #1)
+            Input: /wheel/odom + /imu/data
+            Output: /odometry/local
+            Fréquence: 100 Hz (stabilise la position rapide)
+
+T=30s   : ─────────────────────────────────────────────
+          * Nav2 Bringup  ← **Dépend de /odometry/filtered existant !**
+            - map_server (charge .yaml carte)
+            - planner_server (A* sur costmap)
+            - controller_server (Pure Pursuit)
+            - rviz2 (affichage)
+          * Navsat Transform (avec délai 3s interne, T≈33s réel)
+            Input: /gps/fix, /imu/data → Output: /odometry/gps
+          * EKF Global (ekf_filter_node #2)
+            Input: /odometry/local + /odometry/gps + /imu/data
+            Output: /odometry/filtered
+
+T=40s   : ─────────────────────────────────────────────
+          * waypoint_action_server
+            Attend mission ('navigate_waypoints' action)
+
+          * (Optionnel) gps_visualizer (debug)
+            Affichage live Matplotlib
+
+Déjà actif dès démarrage :
+─────────────────────────────────────────────────────────
+  * openzen_node (driver IMU/GPS)
+  * candle_ros2_node (interface moteurs)
+  * ros2_control (hardware interface + controller_manager)
+  * diff_drive_controller (roues)
+  * twist_mux (arbitrage cmd_vel)
+  * camera_publisher (flux RTSP)
+```
+
+⚠️ **Point critique** : Nav2 (T=30s) démarre *avant* EKF Global (T≈33s). Nav2 se bloque jusqu'à `/odometry/filtered` disponible (3-5s).
+
+---
+
+### **5) LIMITES ET RISQUES TECHNIQUES**
+
+#### **A. Localisation**
+
+| Limite | Impact | Sévérité |
+|--------|--------|----------|
+| GPS 2 Hz (fréq basse) vs EKF Global 30 Hz | Latence 500ms avant correction GPS (dérive roues) | 🟡 Moyen |
+| EKF Local seul dérive ~1-2 m/min (roues glissent) | Avant correction GPS (T<40s mission), erreur position 5-10m possible | 🔴 Haut |
+| CoordGPS fixée (datum 48.7994, 2.0281) | Fonctionnerait mal en autre lieu sans reconfiguration | 🟡 Moyen |
+| Magnetic declination = 0 (config Gazebo sim) | Erreur entête ±3° en réalité à Saint-Cyr → ré-calibrations implicite IMU | 🟡 Moyen |
+
+#### **B. Moteurs & CAN**
+
+| Limite | Impact | Sévérité |
+|--------|--------|----------|
+| CANdle USB mono-adaptateur | Pas de redondance CAN → perte coms totale si USB débranché | 🔴 Haut |
+| PID MD80 hardcodé (Kp=8, Ki=1, Kd=0) | Tuning statique : peut instabiliser si charge change ou glisse | 🟡 Moyen |
+| Pas de watchdog moteurs (disable ne tue pas) | Moteurs restent sous tension si node crash | 🟠 Sécurité |
+| Wheel radius/separation données (0.44 m, 0.13 m) | Calibration imprécise → odomètrie biaisée | 🟡 Moyen |
+
+#### **C. Navigation & Perception**
+
+| Limite | Impact | Sévérité |
+|--------|--------|----------|
+| Nav2 costmap 2D (pas d'obstacle 3D) | Acccrochage obstacles bas non vus (câbles, pierres) | 🟠 Sécurité |
+| Caméra PTZ mais pas de SLAM/mapping dynamique | Dépend de carte pré-chargée (.yaml) → carto manuelle uniquement | 🟡 Moyen |
+| Pas de lidar ou ToF | Détection arrêts d'urgence côté Nav2 absente | 🔴 Haut |
+| Délai action server 40s aléatoire (Internet latence) | Mission web → ws bridge → action → démarrage décalé | 🟡 Moyen |
+
+#### **D. Configuration & Déploiement**
+
+| Limite | Impact | Sévérité |
+|--------|--------|----------|
+| Pas de fichier config centralisé (yaml/conf disséminés) | Maintenance fragile (4 fichiers EKF, 2 Nav2, 5 ros2_control) | 🟡 Moyen |
+| Services "add_md80s", "set_mode_md80s" manuels au démarrage | Manque automation → init moteurs peut échouer silencieusement | 🔴 Haut |
+| curt_mini dépendance externe (git submodule) | Sync repo = effort manuel (-ipa320/curt_mini) | 🟡 Moyen |
+| Pas de lintage/tests unitaires en CI (lint tests indiqués pep257 mais pas run) | Régressions code silent | 🟠 Sécurité |
+
+#### **E. Temps Réel & Fréquences**
+
+| Limite | Impact | Sévérité |
+|--------|--------|----------|
+| ros2_control update_rate = 100 Hz fixe (dur) | Si cycle > 10ms → perte pas de tps, saturation CPU | 🟠 Sécurité |
+| EKF Global 30 Hz vs odom/IMU 100 Hz | Buffer/queue délai jusqu'à 33ms possible | 🟡 Moyen |
+| camera_publisher 25 Hz (timer 0.04s = hardcoded) | Limite bande passante vidéo RTSP sur 4G/WiFi | 🟡 Moyen |
+
+---
+
+### **6) TODO TECHNIQUES PRIORITAIRES**
+
+#### **Priorité 🔴 CRITIQUE (Empêche mission)**
+
+1. **Watchdog & safeté moteurs**
+   - Implémenter `Watchdog` nœud : si contrôler_manager pas heartbeat 100ms → envoyer DISABLE à candle_ros2
+   - Vérifier service disable_md80s appelé en arrêt d'urgence
+   - **Impact** : Prévient suraccélération moteurs si crash
+
+2. **Lidar ou détection d'obstacles**
+   - Intégrer Lidar 2D (Sick, Livox) pour évitage autonome
+   - Ajouter costmap dynamic layer si obstacle détecté
+   - **Impact** : Élimine risque collision (murs, piétons)
+
+3. **Tests démarrage automatisé**
+   - Script bash/Python qui appelle services `add_md80s` → `set_mode_md80s` → `enable_md80s` sans intervention
+   - Vérifier heartbeat openzen_node, candle_node avant lancer Nav2
+   - **Impact** : Réduire erreurs d'init moteurs
+
+#### **Priorité 🟠 HAUTE (Impacte fiabilité)**
+
+4. **Tuning EKF covariances**
+   - Mesurer covariance réelle capteurs (ex: GPS RTK precision vs odom drift)
+   - Auto-décalrer covariances en YAML (actuellement imu0_config: [false...] = ignorer IMU!)
+   - **Fichiers** : `ekf_local.yaml` (manque `imu0_remove_gravitational_acceleration`), `ekf_global.yaml` (à vérifier)
+   - **Impact** : Localisation ±100mm au lieu de ±500mm
+
+5. **Tuning Nav2 (lookahead, tolerances)**
+   - Augmenter `lookahead_dist` 0.6 → 1.2 si oscillations haute fréquence
+   - Baisser `xy_goal_tolerance` 0.9 → 0.5 si précision requise
+   - Tester `allow_reversing: true` (actuellement false) → gain navigabilité
+   - **Fichier** : `nav2_params.yaml` (bien documenté !)
+   - **Impact** : Arrêt ±0.5m au waypoint au lieu de ±0.9m
+
+6. **Calibration odométrie + friction**
+   - Mesurer vraie "wheel_radius" (0.13m = approx) et "wheel_separation" (0.44m = approx)
+   - Tester `wheel_separation_multiplier` 1.0 → 1.05 si dérive rotation
+   - **Fichier** : `ros2_control.yaml`
+   - **Impact** : Odom dérive réduction 50%
+
+#### **Priorité 🟡 MOYEN (Maintenance & scalabilité)**
+
+7. **Centraliser config robot**
+   - Créer `robot_params.yaml` unique : EKF, Nav2, control, camera
+   - Passer namespace complet plutôt que loader individuel
+   - **Impact** : Maintenance ÷3, déploiement multi-instances facile
+
+8. **Intégrer tests CI/CD**
+   - colcon test run all packages (currently lint only)
+   - Mock nodes pour tester waypoint_action_server sans Nav2 réel
+   - **Impact** : Attraper régressions, montée en confiance
+
+9. **Documenter launch order + timing**
+   - README section "Démarrage pas à pas avec délais attendus"
+   - Diag node : vérifie topics présents à T+45s avant déclarer "Ready"
+   - **Impact** : Moins débug temps au lancement
+
+10. **Ajouter page de debug ROS2**
+    - [ros2 node list](#), [topics](#), [graph](#) en page web
+    - Echo topics en temps réel dans interface web
+    - **Impact** : Monitoring à distance (télébot)
+
+#### **Bonus : Améliorations UX/Perf**
+
+11. Camera stream compression (H264 actuellement ou H265?)
+12. **Redondance** : 2e GPS/IMU 2× fiabilité
+13. **Headless mode** : run sans Rviz par défaut (save CPU)
+14. **Sim → Real transition** : flag sim_time True/False centralisé
+
+---
+
+## **Architecture FICHIERS CRITIQUES À CONNAÎTRE**
+
+```
+robot_ws/src/
+├── gps_package/
+│   ├── config/ekf_local.yaml      ← Fusion rapide
+│   ├── config/ekf_global.yaml     ← Fusion finale
+│   └── config/navsat.yaml         ← GPS → XY + datum
+├── navigation_pkg/
+│   ├── config/nav2_params.yaml    ← Planner A* + controller Pure Pursuit
+│   ├── launch/global_launch.py    ← Orchestration avec TimerAction
+│   └── navigation_pkg/waypoint_action_server.py ← Mission + photo
+├── curt_mini/
+│   ├── curt_mini/config/
+│   │   ├── ros2_control.yaml      ← DiffDrive (wheel radius/separation)
+│   │   ├── twist_mux.yaml         ← Arbitrage cmd_vel
+│   │   └── joystick.yaml          ← Teleop (F710 gamepad)
+│   └── ipa_ros2_control/
+│       └── src/curt_mini_hardware_interface.cpp ← Glue MD80/ros2_control
+├── candle_ros2/
+│   ├── msg/MotionCommand.msg      ← Vitesse directe moteurs
+│   ├── msg/VelocityPidCommand.msg ← PID config
+│   └── src/md80_node.cpp          ← Comms CAN
+├── camera/
+│   ├── launch/camera.launch.py    ← Flux RTSP
+│   └── camera/camera_bridge.py    ← Pub /camera/fluent, /camera/clear
+└── openzenros2/
+    └── launch/openzen_lpms.launch.py ← IMU/GPS driver
+```
+
+---
+
+**Conclusion** : Système fonctionnel et modulaire ROS2 pour navigation autonome garden-scale avec fusion GPS/IMU/roues + capture photo géolocalisée. Risques majeurs = watchdog moteurs manquant, pas d'obstacle detection, dépendance calibration EKF. Prioriser **watchdog + Lidar** en production.
+
+## RAPPORT D'ANALYSE : Package ROS2 `web_control`
+
+---
+
+### **1) ARCHITECTURE DU PACKAGE WEB_CONTROL**
+
+#### **Localisation du package**
+[`client_ws/src/web_control/`](client_ws/src/web_control/)
+
+#### **Structure hiérarchique**
+
+```
+web_control/
+├── package.xml                          # Métadonnées ROS2 (dépendances, version)
+├── setup.py                             # Configuration d'installation ament_python
+├── setup.cfg                            # Paramètres setuptools
+├── web_control/                         # Modules Python backend
+│   ├── __init__.py                      # Vide
+│   ├── backend_node.py                  # Nœud principal (serveur web + logique)
+│   ├── camera_publisher.py              # Publisher flux caméra RTSP → topic ROS
+│   ├── capture_manager.py               # Gestion capture photo/vidéo (OpenCV + FFmpeg)
+│   └── gallery_manager.py               # Publication liste média en JSON
+├── launch/
+│   └── web_control_full.launch.py       # Lancement 3 nœuds coordonnés
+└── web/                                 # Frontend (assets statiques)
+    ├── index.html                       # Page d'accueil interface Web
+    ├── style.css                        # Theme clair/sombre (mode nuit)
+    ├── configuration.json               # Config flux vidéo (host:port/stream)
+    ├── js/
+    │   ├── 01-core-ros.js              # Connexion WebSocket ROS + flux vidéo
+    │   ├── 02-PTZ.js                   # Télécommande Pan/Tilt/Zoom caméra
+    │   ├── 03-communication-avec-robot.js # Envoi cmd_vel, arrêt d'urgence, missions
+    │   ├── 04-media-gallery.js         # Gestion photos/vidéos capturées
+    │   ├── 05-trajectoires.js          # Chargement/édition/lancement trajectoires
+    │   └── 06-UI-minimap.js            # Affichage mini-carte + dot robot
+    ├── accueil/                        # Page présentation projet
+    ├── navig/                          # Pages navigation autonome
+    ├── terminal/                       # Console logs système
+    └── galerie/                        # **Lien symbolique** → ~/robot_gallery
+```
+
+#### **Type de package**
+- **Build system** : `ament_python` (ROS2 Python)
+- **Version** : 1.0.0
+- **Description** : Interface Web ROS2 Complète
+
+#### **Dépendances ROS2**
+- `rclpy`, `std_msgs`, `geometry_msgs`, `std_srvs`, `sensor_msgs`, `cv_bridge`
+- `rosbridge_server` (WebSocket ROS2 ↔ JavaScript)
+- `web_video_server` (streaming vidéo HTTP)
+
+---
+
+### **2) FLUX D'EXÉCUTION AU LANCEMENT**
+
+#### **A. Commande de lancement**
+```bash
+ros2 launch web_control web_control_full.launch.py
+```
+
+#### **B. Démarrage des 3 nœuds ROS2 ([voir fichier](client_ws/src/web_control/launch/web_control_full.launch.py#L1-L30))**
+
+**① Rosbridge WebSocket (Port 9090)**
+- Package : `rosbridge_server`
+- Exécutable : `rosbridge_websocket`
+- Rôle : Crée une passerelle WebSocket pour la communication bidirectionnelle JavaScript ↔ ROS2
+- Accès : `ws://localhost:9090` (ou IP du serveur ROS2)
+
+**② Camera Publisher**
+- Package/Exécutable : `web_control / camera_publisher`
+- Flux d'entrée : RTSP `rtsp://localhost:8554/mystream` (MediaMTX)
+- Fréquence publication : **15 FPS** (1/15 = 66ms)
+- Topic de sortie : **`/camera/clear`** (type `sensor_msgs/Image`, encodage BGR8)
+- Code : [camera_publisher.py](client_ws/src/web_control/web_control/camera_publisher.py#L1-L29)
+
+**③ Backend Custom (Port 8000)**
+- Package/Exécutable : `web_control / backend_node`
+- Rôle : Serveur HTTP statique + logique ROS2 applicative
+- Chemin actif : Démarrage depuis `$INSTALL_DIR/share/web_control/web/` (chdir(web_dir))
+- Port HTTP : **8000** → Accès interface : `http://localhost:8000/`
+- Code : [backend_node.py](client_ws/src/web_control/web_control/backend_node.py#L1-L200)
+
+#### **C. Initialisation du Backend Node (détails)**
+
+1. **Chemins de stockage sécurisés** (créés au démarrage) :
+   - **Galerie** : `~/robot_gallery/` (photos/vidéos capturées)
+   - **Trajectoires** : `~/trajectories/` (fichiers .json des missions)
+   - Liens symboliques créés dans `web/gallery/` → `~/robot_gallery` et `web/trajectories/` → `~/trajectories`
+   
+2. **Managers instanciés** :
+   - `CaptureManager` : Capture photo/vidéo depuis flux RTSP
+   - `GalleryManager` : Scan dossier et publie liste fichiers
+
+3. **HTTP Server démarré** :
+   - ThreadedHTTPServer (1 thread par requête)
+   - Handlers POST personnalisés pour `/upload_photo` et `/upload_video`
+
+---
+
+### **3) TOPICS / SERVICES / ACTIONS VISIBLES**
+
+#### **A. SERVICES (Trigger = Std_srvs/Trigger)**
+| Service | Type | Source | Rôle |
+|---------|------|--------|------|
+| `/camera/take_photo` | `Trigger` | Backend | Capture photo depuis flux courant |
+| `/camera/start_video` | `Trigger` | Backend | Lance enregistrement vidéo (FFmpeg ou OpenCV) |
+| `/camera/stop_video` | `Trigger` | Backend | Arrête enregistrement, sauvegarde fichier |
+
+#### **B. PUBLISHERS (Backend node)**
+| Topic | Type | Fréquence | Rôle |
+|-------|------|-----------|------|
+| `/robot/cmd_vel_buttons` | `geometry_msgs/Point` | À la demande | Envoi commandes direction robot (x=avant/arrière, y=gauche/droite) |
+| `/ui/gallery_files` | `std_msgs/String` (JSON) | 1 Hz | Liste photos/vidéos comme `["photo_2026*.jpg", "video_*.mp4"]` |
+| `/ui/trajectory_files` | `std_msgs/String` (JSON) | 2 Hz | Liste fichiers trajectoires `["mission1.json", "mission2.json"]` |
+| `/ui/system_logs` | `std_msgs/String` (JSON) | À la demande | Logs système `{"message": "...", "level": "info/warn/error"}` |
+
+#### **C. SUBSCRIBERS (Backend node)**
+| Topic | Type | Callback | Rôle |
+|-------|------|----------|------|
+| `/robot/cmd_vel_buttons` | `Point` | `cb_cmd_vel()` | Reçoit echo commandes (debug) |
+| `/camera/ptz` | `Point` | `cb_ptz()` | Reçoit ordres Pan/Tilt/Zoom |
+| `/camera/delete_image` | `String` | `cb_delete_image()` | Supprime fichier de galerie (nom fichier) |
+| `/ui/save_trajectory` | `String` | `cb_save_trajectory()` | Reçoit JSON trajectoire → sauvegarde `~/trajectories/*.json` |
+| `/ui/delete_trajectory` | `String` | `cb_delete_trajectory()` | Supprime fichier `.json` de trajectoire |
+| `/robot/emergency_stop` | `Bool` | `cb_emergency_stop()` | **ARRÊT D'URGENCE** : coupe moteurs, arrête vidéo |
+
+#### **D. PUBLISHER (Camera Publisher)**
+| Topic | Type | Fréquence | Rôle |
+|-------|------|-----------|------|
+| `/camera/clear` | `sensor_msgs/Image` | 15 FPS | Flux vidéo ROS2 depuis RTSP |
+
+#### **E. PUBLISHER (Gallery Manager)**
+| Topic | Type | Fréquence | Rôle |
+|-------|------|-----------|------|
+| `/ui/gallery_files` | `String` (JSON) | 1 Hz | Scan dossier galerie périodiquement |
+
+---
+
+### **4) COMMANDES UTILES DÉDUITES**
+
+#### **A. Compilation et installation**
+```bash
+# Depuis client_ws/
+colcon build --packages-select web_control
+
+# Installation locale
+source install/setup.bash
+```
+
+#### **B. Lancement complet**
+```bash
+# Lancement simple
+ros2 launch web_control web_control_full.launch.py
+
+# Lancement avec logs debugging
+ros2 launch web_control web_control_full.launch.py 2>&1 | tee launch.log
+```
+
+#### **C. Tests de topics (CLI)**
+```bash
+# Voir flux caméra (debug)
+ros2 topic echo /camera/clear --once
+
+# Envoyer commande directe robot
+ros2 topic pub /robot/cmd_vel_buttons geometry_msgs/Point "{x: 0.19, y: 0.0, z: 0.0}" --once
+
+# Déclencher arrêt d'urgence
+ros2 topic pub /robot/emergency_stop std_msgs/Bool "{data: true}" --once
+
+# Prendre une photo
+ros2 service call /camera/take_photo std_srvs/Trigger
+
+# Démarrer enregistrement vidéo
+ros2 service call /camera/start_video std_srvs/Trigger
+```
+
+#### **D. Accès interface Web**
+```
+http://localhost:8000/               # Page d'accueil (contrôle robot)
+http://localhost:8000/navig/         # Navigation autonome (trajectoires)
+http://localhost:8000/terminal/      # Logs système
+```
+
+#### **E. Vérification ports**
+```bash
+netstat -tlnp | grep -E '(8000|9090|8554)'  # Vérifier serveurs actifs
+curl http://localhost:8000/           # Tester serveur web
+```
+
+#### **F. Inspection stockage**
+```bash
+# Galerie capturée
+ls -lah ~/robot_gallery/
+
+# Trajectoires stockées
+ls -lah ~/trajectories/
+
+# Vérifier liens symboliques
+ls -la client_ws/install/web_control/share/web_control/web/
+```
+
+---
+
+### **5) POINTS FRAGILES / LIMITATIONS**
+
+#### **A. Dépendances externes critiques**
+
+| Composant | Risque | Impact |
+|-----------|--------|--------|
+| **RTSP MediaMTX** (`rtsp://localhost:8554/mystream`) | Serveur RTSP absente ou arrêté | Aucun flux caméra, CameraPublisher échoue silencieusement |
+| **Rosbridge WebSocket** (Port 9090) | Non lancé ou port occupé | Interface Web unable to communicate |
+| **FFmpeg** (enregistrement vidéo) | Non installé surtout sur ARM | Fallback OpenCV (format H264 limité, pas audio) |
+| **OpenCV/cv_bridge** | Mismatch versions Python/ROS2 | Conversion Image ROS → OpenCV impossible |
+
+#### **B. Limitations architecture**
+
+1. **Flux vidéo** ([camera_publisher.py](client_ws/src/web_control/web_control/camera_publisher.py#L1-L29))
+   - Codé en dur : `rtsp://localhost:8554/mystream`
+   - **Aucune résilience** : Si flux perd connexion, pas de reconnexion automatique
+   - Bande passante élevée (15 FPS × Image pleine résolution)
+
+2. **Stockage galerie**
+   - **Chemin fixe** : `~/robot_gallery/` (non configurable)
+   - **Limite capacité disque** : Pas de gestion quota, accumulation indéfinie
+   - **Sécurité** : Lien symbolique peut être exploité en traversée répertoire
+
+3. **Capture vidéo** ([capture_manager.py](client_ws/src/web_control/web_control/capture_manager.py#L1-L100))
+   - **Consommation CPU** : FFmpeg + ROS2 node simultanés gourmands (ARM limité)
+   - **Audio absent en fallback** : Si FFmpeg échoue, enregistrement vidéo uniquement
+   - **Timeout FFmpeg** : 5 sec max, peut couper vidéo si système saturé
+
+4. **Arrêt d'urgence** ([line 222-244 backend_node.py](client_ws/src/web_control/web_control/backend_node.py#L222-L244))
+   - Publié **5 fois** (`for _ in range(5)`) sur `/robot/cmd_vel_buttons`
+   - Nécessite que **le robot écoute ce topic** en priorité
+   - **Race condition** possible si autre node publie simultanément
+
+5. **Interface Web**
+   - **RosLib legacy** : Bibliothèque **non maintenue depuis 2021**
+   - **WebRTC** : Implémentation minimaliste, pas de resolution adaptative
+   - **Dark mode** : CSS variables, mais pas de synchronisation serveur
+   - **Cross-origin** : Supposé accès depuis même machine/réseau fermé
+
+6. **Configuration fixe** ([configuration.json](client_ws/src/web_control/web/configuration.json#L1-L10))
+   - Flux vidéo pointé sur `localhost:8889` en dur
+   - URL construction fragile si serveur peut répondre sur IPs multiples
+
+7. **Gestion erreurs minimale**
+   - `CaptureManager.image_callback()` : Silencieuses si conversion ROS image échoue
+   - `backend_node` : Pas de logging structuré pour traçabilité production
+   - **Pas de watchdog** pour redémarrage automatique nœuds en crash
+
+8. **Performance**
+   - **Upload POST** : `parse_qs()` bloquant (pas de streaming multi-part)
+   - **Scan trajectoires** : Timer 2 Hz avec listdir complet (inefficace si 1000+ fichiers)
+   - **Odométrie browser** : RAF sans throttle, peuvent lag à 60+ Hz sur minimap
+
+#### **C. Cas de pannes observables**
+
+- **Perte RTSP → Flux noir** en interface Web
+- **Frontend déconnecté** (Rosbridge down) → Boutons non-réactifs
+- **Disque plein** (`~/robot_gallery/`) → Capture échoue silencieusement
+- **Enregistrement vidéo ζ sans audio** si FFmpeg indisponible
+- **Thread serveur HTTP** bloqué (upload gros fichier) → Interface figée
+- **Arrêt d'urgence ineffectif** si robot n'écoute pas `/robot/cmd_vel_buttons`
+
+---
+
+### **SYNTHÈSE FICHIERS CLÉS**
+
+| Fichier | Lignes | Responsabilité |
+|---------|--------|-----------------|
+| [backend_node.py](client_ws/src/web_control/web_control/backend_node.py) | ~400 | Nœud principal (serveur web + services ROS2) |
+| [camera_publisher.py](client_ws/src/web_control/web_control/camera_publisher.py) | ~30 | Publisher flux RTSP → topic `/camera/clear` |
+| [capture_manager.py](client_ws/src/web_control/web_control/capture_manager.py) | ~250 | Capture photo/vidéo (FFmpeg + OpenCV fallback) |
+| [gallery_manager.py](client_ws/src/web_control/web_control/gallery_manager.py) | ~30 | Publie liste fichiers galerie en JSON |
+| [01-core-ros.js](client_ws/src/web_control/web/js/01-core-ros.js) | ~100 | Init RosLib + flux vidéo WebRTC/HTTP |
+| [03-communication-avec-robot.js](client_ws/src/web_control/web/js/03-communication-avec-robot.js) | ~150 | Envoi cmd_vel, PTZ, arrêt d'urgence |
+| [05-trajectoires.js](client_ws/src/web_control/web/js/05-trajectoires.js) | ~200 | Gestion missions (chargement/édition/lancement) |
+| [web_control_full.launch.py](client_ws/src/web_control/launch/web_control_full.launch.py) | ~35 | Lancement coorcé 3 nœuds |
