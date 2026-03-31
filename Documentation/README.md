@@ -205,8 +205,11 @@ Ce lancement orchestre notamment :
 
 ## 2.2 Lancement de l'interface web (client_ws)
 
-Dans un second terminal :
+Sur l'ordinateur du cilent, dans un terminal :
 ```bash
+# Connexion à tailscale (génèralement permanente)
+sudo tailscale up
+# Lancement du site web
 cd ~/Bureau/robot_ws/client_ws
 colcon build
 source install/setup.bash
@@ -214,8 +217,7 @@ ros2 launch web_control web_control_full.launch.py
 ```
 
 Ce lancement demarre :
-- rosbridge websocket (communication navigateur <-> ROS2),
-- le publisher camera web,
+- rosbridge websocket (communication navigateur <-> ROS2)
 - le backend web (serveur HTTP, capture photo/video, galerie, trajectoires).
 
 ## 2.3 Verification rapide post-demarrage
@@ -227,6 +229,10 @@ ros2 topic list
 
 Topics utiles a verifier :
 Cote robot :
+
+(mettre image)
+
+Cote client : 
 
 ## 2.4 Acces interface
 
@@ -338,11 +344,13 @@ Les packages principaux analyses dans `robot_ws/src` sont :
 
 # 4 - Problèmes possibles et solutions
 
---> Flux vidéo non visible sur le site web, vérifier que l'ip de la caméra est correcte, voir section 1.2.a.
+--> Flux vidéo non visible sur le site web :
+- vérifier que l'ip de la caméra est correcte, voir section 1.2.a.
+- vérifie les logs de mediamtx si une erreur s'est glissée. 
 
---> Interface web inaccessible : verifier que `web_control_full.launch.py` est bien lance et que le port 8000 n'est pas deja occupe.
+--> Interface web inaccessible : verifier que `web_control_full.launch.py` est bien lancé et que le port 8000 n'est pas deja occupe.
 
---> Boutons web inactifs : verifier que rosbridge websocket est lance (port 9090) et que le navigateur est sur la bonne machine/reseau.
+--> Boutons web inactifs : verifier que rosbridge websocket est lancé (port 9090) et que le navigateur est sur la bonne machine/reseau.
 
 --> Odometrie instable ou derive : verifier la publication de `/wheel/odom`, `/imu/data`, `/gps/fix`, puis l'etat de `/odometry/local` et `/odometry/filtered`.
 
@@ -361,6 +369,7 @@ Les packages principaux analyses dans `robot_ws/src` sont :
 - Ajouter une page de diagnostic systeme dans l'interface web (etat capteurs, logs, ressources).
 - Ajouter une gestion basique des erreurs (ex: camera offline, GPS perdu) avec feedback utilisateur.
 - Dès que la connexion avec le site web est rétablie, envoyer les vidéos et photos capturés pendant la coupure (actuellement perdus).
+- Rajouter code Matthieu (control du bras, dans les scripts .py et .js du site web)
 
 ## 5.2 Priorite haute
 
