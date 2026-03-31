@@ -46,7 +46,7 @@ Verifier que ces packages suivants sont installés :
 - twist_mux
 - rosbridge_server
 
-## 1.1.d - Configuration initiale (a faire une fois)
+### 1.1.d - Configuration initiale (a faire une fois)
 
 ### Structure attendue
 
@@ -55,7 +55,28 @@ Télécharger nos projets sur vos machines respectives, on distinguera l'ordinat
 - ` ~R:/Bureau/robot_ws/robot_ws`
 - ` ~C:/Bureau/robot_ws/client_ws`
 
-##
+### Configurer le profil de connexion filaire pour la caméra
+
+Une fois la caméra Reolink branchée en Ethernet sur le PC Robot, dans les paramètres des connexions réseaux, plus particulièrement les connexions filaires, aller dans les réglages (roue dentée) de la connexion Ethernet.
+
+![Configurer le profil de connexion filaire](Illustrations/1-1-d-Connexion-filaire.png)
+
+Dans l'onglet Details, cochez les cases :
+* Connect automatically
+* Make avaible to others users
+
+Et donc l'onglet IPV4, séléctionnez :
+* Shared to other computers
+
+Cela aura pour effet de configurer une IP statique sur le PC Robot (ex: `10.42.0.1`) et de permettre à la caméra d'obtenir une IP dans le même sous-réseau (ex: `10.42.0.188`).
+
+### Configuration Tailscale pour la connexion à distance entre les 2 ordinateurs
+
+1. Installer Tailscale sur les 2 machines (client et robot).
+2. Se connecter avec le même compte Tailscale sur les 2 machines.
+3. Vérifier que les 2 machines sont connectées et visibles dans l'interface Tailscale.
+4. **Noter les IP Tailscale attribuées à chaque machine (ex: `100.x.y.z`).**, elles seront à remplacer dans les fichiers de configuration du projet (voir section 1.2.a).
+5. Tester la connectivité en pingant l'IP Tailscale de l'autre machine depuis chaque machine.
 
 
 ### Verification reseau avant mission
@@ -71,6 +92,10 @@ Verifier que la camera et la machine de controle sont sur le meme sous-reseau.
 
 
 ## 1.2 Configuration récurrente (pouvant changer d'un lancement à l'autre)
+
+Différents éléments peuvent changer d'un lancement à l'autre, dont les modifications ne sont pas automatisées, on retrouve : 
+- l'IP de la webcam
+- l'IP Tailscale de chaque machine
 
 ### 1.2.a - IP De la caméra :
 
@@ -122,7 +147,27 @@ Starting arp-scan 1.10.0 with 256 hosts
 1 host scanned in 1.801 seconds
 ```
 
-✅ **IP de la caméra trouvée : `10.42.0.188`**
+✅ **IP de la caméra trouvée : `10.42.0.188`**, une fois trouvée, remplacer les références à l'IP de la caméra définies dans les fichiers plus haut.
+
+### 1.2.b - IP Tailscale
+
+À renseigner côté client : 
+    Mettre l'ip Tailscale du robot dans : 
+    - `client_ws/configuration.yml` à la ligne 4.
+    - `client_ws/web_control/web_control/camera_publisher.py` à la ligne 18.
+    - `client_ws/web_control/web_control/capture_manager.py` à la ligne 32.
+
+
+## 1.3 Configuration utilisateur
+
+Si vous souhaitez personnaliser les paramètres de navigation ou les réglages de la caméra, voici les fichiers de configuration ou les méthodes à connaitre :
+
+> **Camera** :
+Si on veut personnaliser les réglages de la caméra (ex: résolution, framerate, etc), on peut y accéder en lancant l'IP de la caméra comme URL dans un navigateur web (ex: `http://10.42.0.188`), puis en se connectant avec les identifiants (ex: admin:ros2_2025). Ensuite, dans les paramètres de la caméra, on peut configurer la résolution, le framerate, etc.
+
+Plus pariculièrement dans les paramètres : 
+Camera > Stream > Clear : Baisser la résolution, le FPS ou le bitrate peut aider à réduire la latence du flux vidéo, mais au détriment de la qualité d'image.
+
 
 # 2 - Utilisation
 
@@ -130,20 +175,33 @@ Cette section decrit une sequence de lancement recommandee basee sur l'analyse d
 
 ## 2.1 Lancement du robot (robot_ws)
 
-Dans un terminal :
+
+Dans un premier terminal :
 ```bash
+# Connexion à tailscale (génèralement permanente)
+sudo tailscale up
+# Lancement de tous les noeuds du robot
 cd ~/Bureau/robot_ws/robot_ws
 colcon build
 source install/setup.bash
 ros2 launch curt_mini simulation.xml
 ```
 
+Dans un deuxième terminal :
+```bash
+# Lancement de la re-transcription du flux vidéo
+cd ~/Bureau/robot_ws/mediamtx
+./mediamtx
+```
+
 Ce lancement orchestre notamment :
+- Création d'un VPN entre l'ordinateur de bord du robot et l'ordinateur client via Tailscale.
 - la base robot (ros2_control, candle_ros2, curt_mini),
 - la localisation (EKF local/global + navsat transform),
 - la navigation Nav2,
 - le serveur d'actions de trajectoires.
 - la simulation Gazebo (si `simulation.xml` est lance).
+- Re-transcription du flux vidéo RTSP de la caméra en un flux WebSocket accessible par le client web.
 
 ## 2.2 Lancement de l'interface web (client_ws)
 
@@ -168,12 +226,7 @@ ros2 topic list
 ```
 
 Topics utiles a verifier :
-- `/odometry/local`
-- `/odometry/filtered`
-- `/gps/fix`
-- `/imu/data`
-- `/camera/clear`
-- `/cmd_vel_raw`
+Cote robot :
 
 ## 2.4 Acces interface
 

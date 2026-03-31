@@ -19,7 +19,6 @@ class CameraBridge(Node):
         self.pub_clear = self.create_publisher(Image, '/camera/clear', 10)
         self.bridge = CvBridge()
         
-        # On pointe directement vers l'IP de la caméra au lieu de localhost
         self.rtsp_url = "rtsp://admin:ros2_2025@10.42.0.188:554/h264Preview_01_main"
         self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
