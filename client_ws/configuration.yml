@@ -1,5 +1,5 @@
 /**:
   ros__parameters:
-    robot_ip: "10.17.228.89"
+    robot_ip: "localhost"
     rtsp_port: 8554
     stream_name: "mystream"

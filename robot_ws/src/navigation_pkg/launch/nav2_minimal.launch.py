@@ -10,6 +10,18 @@ def generate_launch_description():
     map_file = os.path.join(pkg_share, 'maps', 'map.yaml')
     nav2_params = os.path.join(
     get_package_share_directory('navigation_pkg'),'config','nav2_params.yaml')
+    bt_navigate_to_pose = os.path.join(
+        pkg_share,
+        'config',
+        'behavior_trees',
+        'navigate_to_pose_limited_recovery.xml',
+    )
+    bt_navigate_through_poses = os.path.join(
+        pkg_share,
+        'config',
+        'behavior_trees',
+        'navigate_through_poses_limited_recovery.xml',
+    )
     
     return LaunchDescription([
 
@@ -39,7 +51,13 @@ def generate_launch_description():
             executable='bt_navigator',
             name='bt_navigator',
             output='screen',
-            parameters=[nav2_params]
+            parameters=[
+                nav2_params,
+                {
+                    'navigate_to_pose.default_bt_xml_filename': bt_navigate_to_pose,
+                    'navigate_through_poses.default_bt_xml_filename': bt_navigate_through_poses,
+                },
+            ]
         ),
         Node(
             package='nav2_behaviors',

@@ -158,7 +158,6 @@ class WaypointActionServer(Node):
         gallery_path = os.path.expanduser('~/mission_gallery')
         os.makedirs(gallery_path, exist_ok=True)
         self._capture_mgr = CaptureManager(node=self, gallery_path=gallery_path)
-        self._loop = asyncio.get_event_loop()
         # endregion
 
         # region déclaration variables de mission
@@ -179,6 +178,10 @@ class WaypointActionServer(Node):
         self._progress_tolerance_m: float = 1.0
         self._last_resume_idx_attempted: int = -1
         self._same_resume_idx_count: int = 0
+        self._consecutive_nav_failures: int = 0
+        self._nav2_recovery_count: int = 0
+        self._max_nav2_recoveries: int = 6
+        self._force_abort_due_to_recoveries: bool = False
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
@@ -228,6 +231,9 @@ class WaypointActionServer(Node):
         self._validated_progress_idx = -1
         self._last_resume_idx_attempted = -1
         self._same_resume_idx_count = 0
+        self._consecutive_nav_failures = 0
+        self._nav2_recovery_count = 0
+        self._force_abort_due_to_recoveries = False
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -262,6 +268,8 @@ class WaypointActionServer(Node):
 
             self._photo_stop_idx = None
             self._current_nav2_gh = None
+            self._nav2_recovery_count = 0
+            self._force_abort_due_to_recoveries = False
 
             # Envoi du goal à Nav2
             send_future = self._nav2_client.send_goal_async(
@@ -345,6 +353,7 @@ class WaypointActionServer(Node):
 
                 self._same_resume_idx_count = 0
                 self._last_resume_idx_attempted = -1
+                self._consecutive_nav_failures = 0
                 self.get_logger().info('\033[92m✅ Tous les waypoints atteints !\033[0m')
                 break
 
@@ -396,9 +405,53 @@ class WaypointActionServer(Node):
                 self.get_logger().info('\033[93m✅ Scan terminé, reprise de la navigation...\033[0m')
 
             elif status in (GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_CANCELED):
+                if self._force_abort_due_to_recoveries:
+                    self._consecutive_nav_failures = 3
+                else:
+                    self._consecutive_nav_failures += 1
                 self.get_logger().warn(
-                    f'⚠  Navigation interrompue (statut={status}) — tentative de dégagement'
+                    f'⚠  Navigation interrompue (statut={status}) '
+                    f'[{self._consecutive_nav_failures}/3]'
                 )
+
+                if self._consecutive_nav_failures >= 3:
+                    self.get_logger().warn(
+                        '⚠  3 échecs Nav2 consécutifs — abandon de mission et retour maison.'
+                    )
+
+                    MAX_RETRIES = 3
+                    reached_home = False
+
+                    for attempt in range(1, MAX_RETRIES + 1):
+                        self.get_logger().warn(f'🏠 Tentative de repli {attempt}/{MAX_RETRIES}...')
+                        reached_home = await self._go_to_home(goal_handle)
+
+                        if goal_handle.is_cancel_requested:
+                            return self._make_result(False, "Mission annulée durant le repli")
+
+                        if reached_home:
+                            self.get_logger().info(f'🏠 Repli réussi à la tentative {attempt}')
+                            break
+
+                        if attempt < MAX_RETRIES:
+                            self.get_logger().warn(
+                                f'🏠 Repli échoué (tentative {attempt}) — nouvelle tentative dans 3 s...'
+                            )
+                            time.sleep(3.0)
+
+                    if not reached_home:
+                        self.get_logger().fatal(
+                            '🚨 APPEL AU SECOURS — Robot bloqué, impossible de rentrer à (0,0) '
+                            'après 3 tentatives ! Intervention humaine requise.'
+                        )
+
+                    goal_handle.abort()
+                    msg = (
+                        'Mission arrêtée après 3 échecs de planification — robot de retour en (0,0)'
+                        if reached_home else
+                        'Mission arrêtée après 3 échecs de planification — repli impossible'
+                    )
+                    return self._make_result(False, msg)
 
                 escaped = await self._reverse_unstuck_to_goal(goal_handle, 20.0)
 
@@ -406,6 +459,7 @@ class WaypointActionServer(Node):
                     return self._make_result(False, "Mission annulée par l'opérateur")
 
                 if escaped:
+                    self._consecutive_nav_failures = 0
                     self.get_logger().info(
                         '🛟 Dégagement réussi, pause courte puis reprise sans marche arrière.'
                     )
@@ -563,6 +617,26 @@ class WaypointActionServer(Node):
         current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
         self._last_nav2_remaining = int(fb.number_of_poses_remaining)
         self._last_nav2_current_idx = int(current_idx)
+        nav2_recoveries = int(getattr(fb, 'number_of_recoveries', 0))
+        if nav2_recoveries != self._nav2_recovery_count:
+            self._nav2_recovery_count = nav2_recoveries
+            self.get_logger().warn(
+                f'🧯 Recoveries Nav2 en cours: {self._nav2_recovery_count}/{self._max_nav2_recoveries}'
+            )
+
+        if (
+            self._nav2_recovery_count >= self._max_nav2_recoveries
+            and not self._force_abort_due_to_recoveries
+            and self._photo_stop_idx is None
+        ):
+            self._force_abort_due_to_recoveries = True
+            self.get_logger().warn(
+                '⚠  Seuil recoveries Nav2 atteint — annulation du goal courant '
+                'pour déclencher le retour maison.'
+            )
+            if self._current_nav2_gh is not None:
+                self._current_nav2_gh.cancel_goal_async()
+
         self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
 
         # ── Affichage console (1 message sur 30, sauf changement de waypoint) ─
