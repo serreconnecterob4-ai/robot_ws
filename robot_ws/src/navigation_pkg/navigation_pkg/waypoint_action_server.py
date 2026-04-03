@@ -173,6 +173,12 @@ class WaypointActionServer(Node):
         self._outer_goal_handle = None         # goal handle de l'action client
         self._display_counter: int = 0
         self._last_displayed_wp: tuple[float, float] | None = None
+        self._last_nav2_remaining: int | None = None
+        self._last_nav2_current_idx: int = -1
+        self._validated_progress_idx: int = -1
+        self._progress_tolerance_m: float = 1.0
+        self._last_resume_idx_attempted: int = -1
+        self._same_resume_idx_count: int = 0
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
@@ -217,6 +223,11 @@ class WaypointActionServer(Node):
         self._current_nav2_gh = None
         self._display_counter = 0
         self._last_displayed_wp = None
+        self._last_nav2_remaining = None
+        self._last_nav2_current_idx = -1
+        self._validated_progress_idx = -1
+        self._last_resume_idx_attempted = -1
+        self._same_resume_idx_count = 0
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -276,6 +287,64 @@ class WaypointActionServer(Node):
                 return self._make_result(False, "Mission annulée par l'opérateur")
 
             if status == GoalStatus.STATUS_SUCCEEDED:
+                self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
+
+                # Garde-fou: Nav2 peut parfois valider trop tôt si la trajectoire
+                # recroise la zone du dernier waypoint alors que des poses restent.
+                final_x, final_y = self._coords[-1]
+                dist_to_final = math.hypot(
+                    self._last_robot_x - final_x,
+                    self._last_robot_y - final_y,
+                )
+                all_waypoints_validated = (
+                    self._validated_progress_idx >= (len(self._coords) - 1)
+                )
+                suspicious_success = not all_waypoints_validated
+
+                if suspicious_success:
+                    resume_idx = max(self._start_idx, self._validated_progress_idx + 1)
+                    resume_idx = min(max(resume_idx, 0), len(self._coords))
+
+                    if resume_idx == self._last_resume_idx_attempted:
+                        self._same_resume_idx_count += 1
+                    else:
+                        self._last_resume_idx_attempted = resume_idx
+                        self._same_resume_idx_count = 1
+
+                    self.get_logger().warn(
+                        '⚠ Succès Nav2 prématuré suspecté '
+                        f'(validated_idx={self._validated_progress_idx}, '
+                        f'remaining={self._last_nav2_remaining}, '
+                        f'dist_final={dist_to_final:.2f} m, '
+                        f'retry_same_idx={self._same_resume_idx_count}). '
+                        f'Reprise mission depuis idx {resume_idx}.'
+                    )
+
+                    if self._same_resume_idx_count >= 3 and resume_idx < len(self._coords):
+                        self.get_logger().warn(
+                            f'🧭 Bascule anti-boucle: waypoint unique idx {resume_idx} '
+                            '(NavigateToPose)'
+                        )
+                        advanced = await self._force_advance_one_waypoint(
+                            goal_handle,
+                            resume_idx,
+                        )
+                        if goal_handle.is_cancel_requested:
+                            goal_handle.canceled()
+                            return self._make_result(False, "Mission annulée par l'opérateur")
+                        if advanced:
+                            self._same_resume_idx_count = 0
+                            self._last_resume_idx_attempted = -1
+                            continue
+
+                    self._start_idx = resume_idx
+                    if self._start_idx >= len(self._coords):
+                        break
+                    await self._safe_sleep(0.2)
+                    continue
+
+                self._same_resume_idx_count = 0
+                self._last_resume_idx_attempted = -1
                 self.get_logger().info('\033[92m✅ Tous les waypoints atteints !\033[0m')
                 break
 
@@ -340,7 +409,7 @@ class WaypointActionServer(Node):
                     self.get_logger().info(
                         '🛟 Dégagement réussi, pause courte puis reprise sans marche arrière.'
                     )
-                    await asyncio.sleep(2.0)
+                    await self._safe_sleep(2.0)
                     continue
 
                 self.get_logger().warn(
@@ -430,6 +499,50 @@ class WaypointActionServer(Node):
             self.get_logger().warn(f'🏠 Repli échoué (statut Nav2 : {status})')
             return False
 
+    async def _force_advance_one_waypoint(self, goal_handle, idx: int) -> bool:
+        """
+        Anti-boucle: envoie uniquement le waypoint idx via NavigateToPose.
+        Si Nav2 le valide, on force l'avancement séquentiel à idx+1.
+        """
+        if idx < 0 or idx >= len(self._coords):
+            return False
+
+        if not self._nav2_goto_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('NavigateToPose indisponible pour anti-boucle')
+            return False
+
+        x, y = self._coords[idx]
+        single_goal = NavigateToPose.Goal()
+        single_goal.pose = self._make_pose(x, y)
+
+        send_future = self._nav2_goto_client.send_goal_async(single_goal)
+        single_gh = await send_future
+        if not single_gh.accepted:
+            self.get_logger().error(f'Goal anti-boucle refusé (idx {idx})')
+            return False
+
+        self._current_nav2_gh = single_gh
+        result_future = single_gh.get_result_async()
+        while not result_future.done():
+            if goal_handle.is_cancel_requested:
+                await single_gh.cancel_goal_async()
+                return False
+            await self._safe_sleep(0.2)
+
+        status = result_future.result().status
+        if status != GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().warn(
+                f'Anti-boucle échoué pour idx {idx} (statut={status})'
+            )
+            return False
+
+        self._validated_progress_idx = max(self._validated_progress_idx, idx)
+        self._start_idx = idx + 1
+        self.get_logger().info(
+            f'🧭 Anti-boucle validé: progression forcée au waypoint {self._validated_progress_idx}'
+        )
+        return True
+
     # ── Feedback Nav2 → retransmis au client externe ─────────────────────────
 
     def _nav2_feedback_callback(self, feedback_msg):
@@ -448,6 +561,9 @@ class WaypointActionServer(Node):
         )
         # Calcul de l'index global du waypoint courant
         current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
+        self._last_nav2_remaining = int(fb.number_of_poses_remaining)
+        self._last_nav2_current_idx = int(current_idx)
+        self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
 
         # ── Affichage console (1 message sur 30, sauf changement de waypoint) ─
         self._display_counter += 1
@@ -494,6 +610,28 @@ class WaypointActionServer(Node):
                 if self._current_nav2_gh is not None:
                     # Annulation interne : le execute_callback reprendra après
                     self._current_nav2_gh.cancel_goal_async()
+
+    def _update_sequential_progress(self, robot_x: float, robot_y: float) -> None:
+        """
+        Valide l'avancement uniquement dans l'ordre des waypoints.
+        Un waypoint est validé si le robot entre dans la tolérance interne.
+        """
+        next_idx = self._validated_progress_idx + 1
+        progressed = False
+
+        while 0 <= next_idx < len(self._coords):
+            wx, wy = self._coords[next_idx]
+            if math.hypot(robot_x - wx, robot_y - wy) <= self._progress_tolerance_m:
+                self._validated_progress_idx = next_idx
+                progressed = True
+                next_idx += 1
+            else:
+                break
+
+        if progressed:
+            self.get_logger().info(
+                f'📍 Progression validée jusqu\'au waypoint {self._validated_progress_idx}'
+            )
 
     async def _set_allow_reversing(self, enabled: bool) -> bool:
         """Active/désactive dynamiquement FollowPath.allow_reversing dans Nav2."""
@@ -600,7 +738,7 @@ class WaypointActionServer(Node):
                     await escape_gh.cancel_goal_async()
                     return True
 
-                await asyncio.sleep(0.2)
+                await self._safe_sleep(0.2)
 
             status = result_future.result().status
             if status == GoalStatus.STATUS_SUCCEEDED:
@@ -699,6 +837,17 @@ class WaypointActionServer(Node):
         )
 
     # ── Utilitaires ──────────────────────────────────────────────────────────
+
+    async def _safe_sleep(self, seconds: float) -> None:
+        """
+        Pause compatible ROS2: utilise asyncio si une boucle tourne,
+        sinon bascule sur un sleep bloquant court.
+        """
+        try:
+            asyncio.get_running_loop()
+            await asyncio.sleep(seconds)
+        except RuntimeError:
+            time.sleep(seconds)
 
     def _make_result(self, success: bool, message: str) -> NavigateWaypoints.Result:
         """Construit un NavigateWaypoints.Result en une ligne."""
