@@ -94,62 +94,9 @@ Verifier que la camera et la machine de controle sont sur le meme sous-reseau.
 ## 1.2 Configuration récurrente (pouvant changer d'un lancement à l'autre)
 
 Différents éléments peuvent changer d'un lancement à l'autre, dont les modifications ne sont pas automatisées, on retrouve : 
-- l'IP de la webcam
 - l'IP Tailscale de chaque machine
 
-### 1.2.a - IP De la caméra :
-
-L'IP même de la caméra peut changer d'un lancement à l'autre, il est donc nécessaire de la configurer à chaque fois. Par défaut, elle est configurée sur `10.42.0.188`.
-
-Cependant il est possible de configurer l'IP de la caméra dans le code source du projet.
-changer l'IP de la caméra dans les fichiers suivants :
-
-    - franhf_ws/src/camera/camera/camera_control_node.py -- ligne 24
-    - franhf_ws/src/camera/camera/camera_bridge.py -- ligne 15
-    - franhf_ws/src/camera/mediamtx/mediamtx.yml -- ligne 699
-    - franhf_ws/src/camera/camera/camera_publisher.py -- ligne 12?
-    - franhf_ws/src/camera/camera/capture_manager.py -- ligne 12
-
-De même manière, on peut configurer le flux dans les fichiers ci-dessus, dans les lignes adjascentes.
-Pour vérifier l'IP de la caméra :
-
-#### **Étape 1 : Identifier l'interface réseau ethernet active**
-
-Dans un terminal :
-```bash
-$ ip a
-```
-```
-[..]
-2: enp0s31f6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP
-    link/ether 10:e7:c6:78:17:d8 brd ff:ff:ff:ff:ff:ff
-    inet 10.42.0.1/24 brd 10.42.0.255 scope global enp0s31f6
-[..]
-```
-
-> 💡 **Note** : Cherchez l'interface possédant `link/ether` (ici : `enp0s31f6`).
-> Si aucune IP n'est trouvée, vérifiez bien que le profil de connexion filaire pour la caméra est le bon.
-
----
-
-#### Étape 2 : Scanner le réseau pour trouver la caméra
-
-
-```bash
-$ sudo arp-scan --interface=enp0s31f6 --localnet
-```
-```
-Interface: enp0s31f6, type: EN10MB, MAC: 10:e7:c6:78:17:d8, IPv4: 10.42.0.1
-Starting arp-scan 1.10.0 with 256 hosts
-───────────────────────────────────────────────────
-10.42.0.188  ec:71:db:2b:47:73  (Caméra)
-───────────────────────────────────────────────────
-1 host scanned in 1.801 seconds
-```
-
-✅ **IP de la caméra trouvée : `10.42.0.188`**, une fois trouvée, remplacer les références à l'IP de la caméra définies dans les fichiers plus haut.
-
-### 1.2.b - IP Tailscale
+### 1.2.a - IP Tailscale
 
 À renseigner côté client : 
     Mettre l'ip Tailscale du robot dans : 
@@ -348,6 +295,59 @@ Les packages principaux analyses dans `robot_ws/src` sont :
 - vérifier que l'ip de la caméra est correcte, voir section 1.2.a.
 - vérifie les logs de mediamtx si une erreur s'est glissée. 
 
+---- 
+
+L'IP même de la caméra peut changer d'un lancement à l'autre, il est donc nécessaire de la configurer à chaque fois. Par défaut, elle est configurée sur `10.42.0.188`.
+
+Cependant il est possible de configurer l'IP de la caméra dans le code source du projet.
+changer l'IP de la caméra dans les fichiers suivants :
+
+    - franhf_ws/src/camera/camera/camera_control_node.py -- ligne 24
+    - franhf_ws/src/camera/camera/camera_bridge.py -- ligne 15
+    - franhf_ws/src/camera/mediamtx/mediamtx.yml -- ligne 699
+    - franhf_ws/src/camera/camera/camera_publisher.py -- ligne 12?
+    - franhf_ws/src/camera/camera/capture_manager.py -- ligne 12
+
+De même manière, on peut configurer le flux dans les fichiers ci-dessus, dans les lignes adjascentes.
+Pour vérifier l'IP de la caméra :
+
+#### **Étape 1 : Identifier l'interface réseau ethernet active**
+
+Dans un terminal :
+```bash
+$ ip a
+```
+```
+[..]
+2: enp0s31f6: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc fq_codel state UP
+    link/ether 10:e7:c6:78:17:d8 brd ff:ff:ff:ff:ff:ff
+    inet 10.42.0.1/24 brd 10.42.0.255 scope global enp0s31f6
+[..]
+```
+
+> 💡 **Note** : Cherchez l'interface possédant `link/ether` (ici : `enp0s31f6`).
+> Si aucune IP n'est trouvée, vérifiez bien que le profil de connexion filaire pour la caméra est le bon.
+
+---
+
+#### Étape 2 : Scanner le réseau pour trouver la caméra
+
+
+```bash
+$ sudo arp-scan --interface=enp0s31f6 --localnet
+```
+```
+Interface: enp0s31f6, type: EN10MB, MAC: 10:e7:c6:78:17:d8, IPv4: 10.42.0.1
+Starting arp-scan 1.10.0 with 256 hosts
+───────────────────────────────────────────────────
+10.42.0.188  ec:71:db:2b:47:73  (Caméra)
+───────────────────────────────────────────────────
+1 host scanned in 1.801 seconds
+```
+
+✅ **IP de la caméra trouvée : `10.42.0.188`**, une fois trouvée, remplacer les références à l'IP de la caméra définies dans les fichiers plus haut.
+------
+
 --> Interface web inaccessible : verifier que `web_control_full.launch.py` est bien lancé et que le port 8000 n'est pas deja occupe.
 
 --> Boutons web inactifs : verifier que rosbridge websocket est lancé (port 9090) et que le navigateur est sur la bonne machine/reseau.
@@ -366,6 +366,8 @@ Les packages principaux analyses dans `robot_ws/src` sont :
 ## 5.1 Priorite critique
 
 - Ajouter une perception d'obstacles (Lidar/ToF) et integration costmap dynamique.
+- Faire en sorte que les configurations majeurs (ip camera + tailscale soit configurables dans uniquement un seul fichier et transmis automatiquement aux autres composants).
+- Faire plusieurs profils de configuration (ex: dev, demo, terrain) pour basculer facilement entre differents setups.
 - Ajouter une page de diagnostic systeme dans l'interface web (etat capteurs, logs, ressources).
 - Ajouter une gestion basique des erreurs (ex: camera offline, GPS perdu) avec feedback utilisateur.
 - Dès que la connexion avec le site web est rétablie, envoyer les vidéos et photos capturés pendant la coupure (actuellement perdus).
