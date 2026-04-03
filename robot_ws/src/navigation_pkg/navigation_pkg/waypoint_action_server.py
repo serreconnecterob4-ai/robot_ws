@@ -18,6 +18,7 @@ import json
 import math
 import os
 import time
+from pathlib import Path
 
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
@@ -35,11 +36,50 @@ from std_msgs.msg import String
 from camera.capture_manager import CaptureManager
 
 
+def find_config_file(filename='config_gps.json'):
+    """Cherche le fichier de config en remontant les répertoires à partir du workspace."""
+    # Commence depuis le répertoire du script
+    current = Path(__file__).parent
+    
+    # Remonte jusqu'à trouver le fichier
+    for parent in [current] + list(current.parents):
+        config_path = parent / filename
+        if config_path.exists():
+            return str(config_path)
+    
+    # Fallback: cherche dans le package share
+    try:
+        from ament_index_python.packages import get_package_share_directory
+        pkg_share = get_package_share_directory('navigation_pkg')
+        config_path = os.path.join(pkg_share, 'config', filename)
+        if os.path.exists(config_path):
+            return config_path
+    except Exception as e:
+        print(f"Warning: Could not access package share directory: {e}")
+    
+    raise FileNotFoundError(f"Cannot find {filename} in workspace or package directories")
+
+
+config_path = find_config_file('config_gps.json')
+print(f"Loading config from: {config_path}")
+
+with open(config_path, "r") as f:
+    config = json.load(f)
+    print(config)
+    origin_gps_coordinates_x = float(config["origin_gps_coordinates_x"])
+    origin_gps_coordinates_y = float(config["origin_gps_coordinates_y"])
+
+    home_meters_coordinates_x = float(config["home_meters_coordinates_x"])
+    home_meters_coordinates_y = float(config["home_meters_coordinates_y"])
+    
+
+
 class WaypointActionServer(Node):
 
     def __init__(self):
         super().__init__('waypoint_action_server')
 
+        # region ros2 init
         # ReentrantCallbackGroup requis pour await dans execute_callback
         self._cb_group = ReentrantCallbackGroup()
 
@@ -74,7 +114,9 @@ class WaypointActionServer(Node):
             '/controller_server/set_parameters',
             callback_group=self._cb_group,
         )
+        # endregion
 
+        # region Interface client <-> robot
         # ── Self-client : interface web → action server (même nœud) ─────────
         # Permet d'éviter un nœud bridge séparé : le nœud s'envoie ses propres
         # goals et transmet feedback/résultat sur les topics web.
@@ -85,7 +127,7 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
         self._web_goal_handle = None
-
+        
         # ── Publishers vers le site web ──────────────────────────────────────
         self._ui_feedback_pub = self.create_publisher(
             String, '/ui/mission_feedback', 10
@@ -110,12 +152,16 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
 
-        # ── CaptureManager ───────────────────────────────────────────────────
+        # endregion
+
+        # region CaptureManager initalisation  ───────────────────────────────────────────────────
         gallery_path = os.path.expanduser('~/mission_gallery')
         os.makedirs(gallery_path, exist_ok=True)
         self._capture_mgr = CaptureManager(node=self, gallery_path=gallery_path)
         self._loop = asyncio.get_event_loop()
+        # endregion
 
+        # region déclaration variables de mission
         # ── État de la mission courante (une seule mission à la fois) ────────
         self._coords: list[tuple[float, float]] = []
         self._take_photo: list[bool] = []
@@ -126,10 +172,12 @@ class WaypointActionServer(Node):
         self._current_nav2_gh = None          # goal handle Nav2 en cours
         self._outer_goal_handle = None         # goal handle de l'action client
         self._display_counter: int = 0
+        self._last_displayed_wp: tuple[float, float] | None = None
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
-
+        # endregion
+        
         self.get_logger().info('🚀 WaypointActionServer prêt, en attente d\'un goal...')
 
     # ── Callbacks du serveur d'action ────────────────────────────────────────
@@ -168,6 +216,7 @@ class WaypointActionServer(Node):
         self._photo_stop_idx = None
         self._current_nav2_gh = None
         self._display_counter = 0
+        self._last_displayed_wp = None
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -354,7 +403,7 @@ class WaypointActionServer(Node):
             return False
 
         home_goal = NavigateToPose.Goal()
-        home_goal.pose = self._make_pose(-5.576510, 22.827500)  # légèrement décalé pour éviter les collisions avec les murs
+        home_goal.pose = self._make_pose(home_meters_coordinates_x, home_meters_coordinates_y)
 
         send_future = self._nav2_goto_client.send_goal_async(home_goal)
         home_gh = await send_future
@@ -375,7 +424,7 @@ class WaypointActionServer(Node):
 
         status = result_future.result().status
         if status == GoalStatus.STATUS_SUCCEEDED:
-            self.get_logger().info('🏠 Repli réussi : robot en (0, 0)')
+            self.get_logger().info(f'🏠 Repli réussi : robot en ({home_meters_coordinates_x}, {home_meters_coordinates_y})')
             return True
         else:
             self.get_logger().warn(f'🏠 Repli échoué (statut Nav2 : {status})')
@@ -400,9 +449,18 @@ class WaypointActionServer(Node):
         # Calcul de l'index global du waypoint courant
         current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
 
-        # ── Affichage console (tous les 5 messages) ──────────────────────────
+        # ── Affichage console (1 message sur 30, sauf changement de waypoint) ─
         self._display_counter += 1
-        if self._display_counter % 5 == 0:
+        current_wp = None
+        if 0 <= current_idx < len(self._coords):
+            current_wp = self._coords[current_idx]
+
+        should_log = (self._display_counter % 30 == 0)
+        if current_wp is not None and current_wp != self._last_displayed_wp:
+            should_log = True
+
+        if should_log:
+            self._last_displayed_wp = current_wp
             self.get_logger().info(
                 f'\033[96mRobot : ({fb.current_pose.pose.position.x:.2f}, '
                 f'{fb.current_pose.pose.position.y:.2f}) | '
@@ -483,6 +541,7 @@ class WaypointActionServer(Node):
         On coupe ce mode dès que le robot s'est écarté de escape_distance (m),
         puis on repassera en marche avant uniquement.
         """
+        self.get_logger().warn('\033[91m🛟 Tentative de dégagement en marche arrière...\033[0m')
         if not await self._set_allow_reversing(True):
             return False
 
