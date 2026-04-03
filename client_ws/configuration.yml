@@ -1,8 +1,5 @@
-# WEBCAM
-
-robot_webcam_flux:
-  ip: localhost
-  port: 8889
-  flux_name : mystream
-
-#
+/**:
+  ros__parameters:
+    robot_ip: "10.17.228.89"
+    rtsp_port: 8554
+    stream_name: "mystream"
