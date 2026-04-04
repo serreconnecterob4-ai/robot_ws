@@ -16,6 +16,7 @@ pour prendre des photos
 et enregistrer des vidéos. (CLEAR)
 '''
 
+
 class CaptureManager:
     def __init__(self, node, gallery_path):
         self.node = node
@@ -25,19 +26,10 @@ class CaptureManager:
         self.recording = False
         self.video_writer = None
         
-        # --- ADAPTATION IP DYNAMIQUE ---
-        # Récupère l'IP configurée dans le nœud (via le fichier YAML ou paramètre par défaut)
-        ip = self.node.get_parameter('robot_ip').get_parameter_value().string_value
-        
-        # Si l'IP est "0.0.0.0" (écoute universelle), on utilise "127.0.0.1" pour la lecture interne
-        target_ip = "127.0.0.1" if ip == "0.0.0.0" else ip
-        self.rtsp_url = f"rtsp://{target_ip}:8554/mystream"
-        
-        self.node.get_logger().info(f"CaptureManager configuré sur : {self.rtsp_url}")
-        
         # Pour enregistrement FFmpeg (vidéo + audio)
         self.ffmpeg_process = None
         self.ffmpeg_thread = None
+        self.rtsp_url = "rtsp://localhost:8554/mystream"
         
         # Abonnement au flux caméra pour capturer
         self.sub = self.node.create_subscription(
@@ -100,7 +92,7 @@ class CaptureManager:
         cmd = [
             'ffmpeg',
             '-rtsp_transport', 'tcp',
-            '-i', self.rtsp_url, # Utilise l'URL adaptée dynamiquement
+            '-i', self.rtsp_url,
             '-c:v', 'avc1',           # Codec vidéo H.264
             '-c:a', 'aac',            # Codec audio AAC
             '-y',                      # Overwrite output file
@@ -140,4 +132,3 @@ class CaptureManager:
         
         self.node.get_logger().info("Fin enregistrement")
         return True, "Enregistrement arrêté"
-    

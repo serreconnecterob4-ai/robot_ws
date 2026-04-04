@@ -86,10 +86,6 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class WebBackend(Node):
     def __init__(self):
         super().__init__('web_backend')
-
-        # On définit l'IP par défaut sur localhost
-        self.declare_parameter('robot_ip', '127.0.0.1')
-        self.robot_ip = self.get_parameter('robot_ip').get_parameter_value().string_value
         
         # 1. Chemin vers les fichiers du site Web (HTML/JS) - Dossier d'installation ROS
         package_share = get_package_share_directory('web_control')
@@ -144,7 +140,6 @@ class WebBackend(Node):
             self.get_logger().error(f"Erreur création lien symbolique trajectories: {e}")
 
         # Initialisation des managers avec le dossier SÉCURISÉ
-        # On passe 'self' (le node) pour que CaptureManager puisse lire les paramètres
         self.capture_mgr = CaptureManager(self, self.gallery_dir)
         self.gallery_mgr = GalleryManager(self, self.gallery_dir)
 
@@ -204,20 +199,11 @@ class WebBackend(Node):
     def start_web_server(self):
         try:
             os.chdir(self.web_dir)
-            # IMPORTANT : "" permet de répondre à 'localhost' ET à ton IP Tailscale plus tard
-            # Cela lie le serveur à 0.0.0.0 (toutes les interfaces)
             self.httpd = ThreadedHTTPServer(("", PORT_WEB), QuietHandler)
-            
             self.server_thread = threading.Thread(target=self.httpd.serve_forever)
             self.server_thread.daemon = True
             self.server_thread.start()
-            
-            # Log pour l'interface utilisateur (UI)
-            self.publish_log(f"Serveur web accessible sur http://{self.robot_ip}:{PORT_WEB}", "success")
-            
-            # Log pour la console ROS 2
-            self.get_logger().info(f"Serveur Web actif sur toutes les interfaces (via {self.robot_ip}:{PORT_WEB})")
-            
+            self.publish_log(f"Serveur web démarré sur le port {PORT_WEB}", "success")
         except OSError as e:
             self.get_logger().error(f"Erreur serveur web: {e}")
             self.publish_log(f"Erreur serveur web: {e}", "error")
