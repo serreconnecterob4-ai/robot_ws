@@ -54,8 +54,9 @@ def generate_launch_description():
             parameters=[
                 nav2_params,
                 {
-                    'navigate_to_pose.default_bt_xml_filename': bt_navigate_to_pose,
-                    'navigate_through_poses.default_bt_xml_filename': bt_navigate_through_poses,
+                    'default_nav_to_pose_bt_xml': bt_navigate_to_pose,
+                    'default_nav_through_poses_bt_xml': bt_navigate_through_poses,
+                    'always_reload_bt_xml': True,
                 },
             ]
         ),

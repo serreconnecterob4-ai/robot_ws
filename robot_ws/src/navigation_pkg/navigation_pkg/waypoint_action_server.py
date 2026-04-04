@@ -30,7 +30,7 @@ from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped
 from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from navigation_interfaces.action import NavigateWaypoints
-from rcl_interfaces.msg import Parameter, ParameterType, ParameterValue
+from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import String
 from camera.capture_manager import CaptureManager
@@ -152,6 +152,15 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
 
+        # Écoute des logs ROS pour compter uniquement les échecs planner "no valid path found"
+        self.create_subscription(
+            Log,
+            '/rosout',
+            self._cb_rosout,
+            50,
+            callback_group=self._cb_group,
+        )
+
         # endregion
 
         # region CaptureManager initalisation  ───────────────────────────────────────────────────
@@ -179,9 +188,10 @@ class WaypointActionServer(Node):
         self._last_resume_idx_attempted: int = -1
         self._same_resume_idx_count: int = 0
         self._consecutive_nav_failures: int = 0
-        self._nav2_recovery_count: int = 0
-        self._max_nav2_recoveries: int = 6
-        self._force_abort_due_to_recoveries: bool = False
+        self._planner_no_path_count: int = 0
+        self._max_planner_no_path: int = 6
+        self._force_abort_due_to_no_path: bool = False
+        self._monitor_planner_no_path: bool = False
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
@@ -232,8 +242,9 @@ class WaypointActionServer(Node):
         self._last_resume_idx_attempted = -1
         self._same_resume_idx_count = 0
         self._consecutive_nav_failures = 0
-        self._nav2_recovery_count = 0
-        self._force_abort_due_to_recoveries = False
+        self._planner_no_path_count = 0
+        self._force_abort_due_to_no_path = False
+        self._monitor_planner_no_path = False
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -268,8 +279,8 @@ class WaypointActionServer(Node):
 
             self._photo_stop_idx = None
             self._current_nav2_gh = None
-            self._nav2_recovery_count = 0
-            self._force_abort_due_to_recoveries = False
+            self._force_abort_due_to_no_path = False
+            self._monitor_planner_no_path = True
 
             # Envoi du goal à Nav2
             send_future = self._nav2_client.send_goal_async(
@@ -405,8 +416,17 @@ class WaypointActionServer(Node):
                 self.get_logger().info('\033[93m✅ Scan terminé, reprise de la navigation...\033[0m')
 
             elif status in (GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_CANCELED):
-                if self._force_abort_due_to_recoveries:
-                    self._consecutive_nav_failures = 3
+                self._monitor_planner_no_path = False
+                if self._force_abort_due_to_no_path:
+                    self.get_logger().warn(
+                        '⚠ Mission stoppée après seuil planner no valid path found: '
+                        'pas de chemin trouvé (trajet interdit).'
+                    )
+                    goal_handle.abort()
+                    return self._make_result(
+                        False,
+                        'Mission non réussie: pas de chemin trouve (trajet interdit)'
+                    )
                 else:
                     self._consecutive_nav_failures += 1
                 self.get_logger().warn(
@@ -617,25 +637,6 @@ class WaypointActionServer(Node):
         current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
         self._last_nav2_remaining = int(fb.number_of_poses_remaining)
         self._last_nav2_current_idx = int(current_idx)
-        nav2_recoveries = int(getattr(fb, 'number_of_recoveries', 0))
-        if nav2_recoveries != self._nav2_recovery_count:
-            self._nav2_recovery_count = nav2_recoveries
-            self.get_logger().warn(
-                f'🧯 Recoveries Nav2 en cours: {self._nav2_recovery_count}/{self._max_nav2_recoveries}'
-            )
-
-        if (
-            self._nav2_recovery_count >= self._max_nav2_recoveries
-            and not self._force_abort_due_to_recoveries
-            and self._photo_stop_idx is None
-        ):
-            self._force_abort_due_to_recoveries = True
-            self.get_logger().warn(
-                '⚠  Seuil recoveries Nav2 atteint — annulation du goal courant '
-                'pour déclencher le retour maison.'
-            )
-            if self._current_nav2_gh is not None:
-                self._current_nav2_gh.cancel_goal_async()
 
         self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
 
@@ -684,6 +685,36 @@ class WaypointActionServer(Node):
                 if self._current_nav2_gh is not None:
                     # Annulation interne : le execute_callback reprendra après
                     self._current_nav2_gh.cancel_goal_async()
+
+    def _cb_rosout(self, msg: Log):
+        """Compte strictement les warnings planner 'no valid path found' pendant la mission active."""
+        if not self._monitor_planner_no_path:
+            return
+
+        if msg.name != 'planner_server':
+            return
+
+        text = msg.msg.lower()
+        if 'no valid path found' not in text:
+            return
+
+        self._planner_no_path_count += 1
+        self.get_logger().warn(
+            f'🧭 Planner no valid path found: '
+            f'{self._planner_no_path_count}/{self._max_planner_no_path}'
+        )
+
+        if (
+            self._planner_no_path_count >= self._max_planner_no_path
+            and not self._force_abort_due_to_no_path
+            and self._photo_stop_idx is None
+        ):
+            self._force_abort_due_to_no_path = True
+            self.get_logger().warn(
+                '⚠  Seuil planner no valid path found atteint — annulation du goal courant.'
+            )
+            if self._current_nav2_gh is not None:
+                self._current_nav2_gh.cancel_goal_async()
 
     def _update_sequential_progress(self, robot_x: float, robot_y: float) -> None:
         """
