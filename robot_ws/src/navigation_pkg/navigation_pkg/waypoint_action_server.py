@@ -79,6 +79,14 @@ class WaypointActionServer(Node):
     def __init__(self):
         super().__init__('waypoint_action_server')
 
+
+        self.declare_parameter('progress_tolerance_m', 1.0) # distance pour considérer un waypoint comme atteint dans le calcul de la progression
+        self.declare_parameter('max_planner_no_path', 6) # nombre de feedback "no valid path found" consécutifs du planner avant de conclure à un trajet interdit et d'arrêter la mission
+        self.declare_parameter('pause_resume_idle_cmd_sec', 60.0) # durée d'inactivité sur cmd_vel pendant la pause avant reprise auto de la mission
+        self.declare_parameter('pause_resume_max_sec', 300.0) # durée de pause avant reprise auto uniquement si aucun cmd_vel n'a été détecté pendant toute la pause
+
+
+
         # region ros2 init
         # ReentrantCallbackGroup requis pour await dans execute_callback
         self._cb_group = ReentrantCallbackGroup()
@@ -178,8 +186,19 @@ class WaypointActionServer(Node):
         self._capture_mgr = CaptureManager(node=self, gallery_path=gallery_path)
         # endregion
 
+        # region CONFIGURATION
+
+        self._progress_tolerance_m: float = self.get_parameter('progress_tolerance_m').value
+        self._max_planner_no_path: int = self.get_parameter('max_planner_no_path').value
+        self._pause_resume_idle_cmd_sec: float = self.get_parameter('pause_resume_idle_cmd_sec').value
+        self._pause_resume_max_sec: float = self.get_parameter('pause_resume_max_sec').value
+
+        # endregion
+
         # region déclaration variables de mission
-        # ── État de la mission courante (une seule mission à la fois) ────────
+
+
+
         self._coords: list[tuple[float, float]] = []
         self._take_photo: list[bool] = []
         self._photo_taken: list[bool] = []
@@ -193,22 +212,18 @@ class WaypointActionServer(Node):
         self._last_nav2_remaining: int | None = None
         self._last_nav2_current_idx: int = -1
         self._validated_progress_idx: int = -1
-        self._progress_tolerance_m: float = 1.0
         self._last_resume_idx_attempted: int = -1
         self._same_resume_idx_count: int = 0
-        self._consecutive_nav_failures: int = 0
-        self._planner_no_path_count: int = 0
-        self._max_planner_no_path: int = 6
-        self._force_abort_due_to_no_path: bool = False
+        self._consecutive_nav_failures: int = 0 # compteur de résultats Nav2 consécutifs en échec (abort ou cancel)
+        self._planner_no_path_count: int = 0 # compteur de feedback Nav2 "no valid path found" consécutifs, pour bascule anti-boucle et/ou arrêt mission en cas de trajet interdit
+        self._force_abort_due_to_no_path: bool = False 
         self._monitor_planner_no_path: bool = False
         self._pause_requested: bool = False
         self._is_paused: bool = False
         self._pause_started_monotonic: float | None = None
         self._last_cmd_input_monotonic: float | None = None
-        self._pause_manual_activity_seen: bool = False
-        self._pause_resume_idle_cmd_sec: float = 60.0
-        self._pause_resume_max_sec: float = 300.0
-        # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
+        self._pause_manual_activity_seen: bool = False 
+        self._last_pause_feedback_monotonic: float | None = None
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
         # endregion
@@ -266,6 +281,7 @@ class WaypointActionServer(Node):
         self._pause_started_monotonic = None
         self._last_cmd_input_monotonic = None
         self._pause_manual_activity_seen = False
+        self._last_pause_feedback_monotonic = None
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -280,16 +296,24 @@ class WaypointActionServer(Node):
         # ── Boucle de navigation ─────────────────────────────────────────────
         while self._start_idx < len(self._coords):
             if self._is_paused:
-                self.get_logger().warn('⏸ Mission en pause (attente resume ou cancel)...')
+                self.get_logger().warn('Mission en pause (attente resume ou cancel)...')
                 while self._is_paused and not goal_handle.is_cancel_requested:
                     now = time.monotonic()
 
                     if (
+                        self._last_pause_feedback_monotonic is None
+                        or (now - self._last_pause_feedback_monotonic) >= 0.5
+                    ):
+                        self._publish_ui_pause_feedback(now)
+                        self._last_pause_feedback_monotonic = now
+
+                    if (
                         self._pause_started_monotonic is not None
+                        and not self._pause_manual_activity_seen
                         and (now - self._pause_started_monotonic) >= self._pause_resume_max_sec
                     ):
                         self.get_logger().warn(
-                            '▶ Reprise auto mission: pause max atteinte '
+                            ' Reprise auto mission: pause max atteinte sans activité cmd_vel '
                             f'({self._pause_resume_max_sec:.0f}s).'
                         )
                         self._is_paused = False
@@ -297,6 +321,7 @@ class WaypointActionServer(Node):
                         self._pause_started_monotonic = None
                         self._last_cmd_input_monotonic = None
                         self._pause_manual_activity_seen = False
+                        self._last_pause_feedback_monotonic = None
                         break
 
                     if (
@@ -305,7 +330,7 @@ class WaypointActionServer(Node):
                         and (now - self._last_cmd_input_monotonic) >= self._pause_resume_idle_cmd_sec
                     ):
                         self.get_logger().warn(
-                            '▶ Reprise auto mission: inactivité cmd_vel '
+                            ' Reprise auto mission: inactivité cmd_vel '
                             f'({self._pause_resume_idle_cmd_sec:.0f}s).'
                         )
                         self._is_paused = False
@@ -313,6 +338,7 @@ class WaypointActionServer(Node):
                         self._pause_started_monotonic = None
                         self._last_cmd_input_monotonic = None
                         self._pause_manual_activity_seen = False
+                        self._last_pause_feedback_monotonic = None
                         break
 
                     await self._safe_sleep(0.2)
@@ -487,6 +513,7 @@ class WaypointActionServer(Node):
                 self._pause_started_monotonic = time.monotonic()
                 self._last_cmd_input_monotonic = None
                 self._pause_manual_activity_seen = False
+                self._last_pause_feedback_monotonic = None
                 self.get_logger().warn(
                     '⏸ Nav2 annulé pour pause opérateur. Mission en pause indéfinie.'
                 )
@@ -652,8 +679,10 @@ class WaypointActionServer(Node):
 
     async def _force_advance_one_waypoint(self, goal_handle, idx: int) -> bool:
         """
-        Anti-boucle: envoie uniquement le waypoint idx via NavigateToPose.
+        Anti-boucle: envoie uniquement le prochain waypoint auquel aller via NavigateToPose.
         Si Nav2 le valide, on force l'avancement séquentiel à idx+1.
+        --> le but est d'éviter que Nav2 pense que le robot a fini son trajet alors qu'il est juste revenu dans la zone du dernier waypoint, 
+        ce qui peut arriver si les waypoints sont proches. Or aucun paramètre de nav2 waypoint_follower n'existe pour corriger ça
         """
         if idx < 0 or idx >= len(self._coords):
             return False
@@ -693,105 +722,6 @@ class WaypointActionServer(Node):
             f'🧭 Anti-boucle validé: progression forcée au waypoint {self._validated_progress_idx}'
         )
         return True
-
-    # ── Feedback Nav2 → retransmis au client externe ─────────────────────────
-
-    def _nav2_feedback_callback(self, feedback_msg):
-        """
-        Reçoit le feedback Nav2 :
-          - Retransmet les informations à l'action client externe.
-          - Détecte les waypoints nécessitant une photo et déclenche l'arrêt interne.
-        """
-        fb = feedback_msg.feedback
-        # Mémoriser la position pour la réutiliser pendant la pause photo
-        self._last_robot_x = fb.current_pose.pose.position.x
-        self._last_robot_y = fb.current_pose.pose.position.y
-        remaining_sec = (
-            fb.estimated_time_remaining.sec
-            + fb.estimated_time_remaining.nanosec * 1e-9
-        )
-        # Calcul de l'index global du waypoint courant
-        current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
-        self._last_nav2_remaining = int(fb.number_of_poses_remaining)
-        self._last_nav2_current_idx = int(current_idx)
-
-        self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
-
-        # ── Affichage console (1 message sur 30, sauf changement de waypoint) ─
-        self._display_counter += 1
-        current_wp = None
-        if 0 <= current_idx < len(self._coords):
-            current_wp = self._coords[current_idx]
-
-        should_log = (self._display_counter % 30 == 0)
-        if current_wp is not None and current_wp != self._last_displayed_wp:
-            should_log = True
-
-        if should_log:
-            self._last_displayed_wp = current_wp
-            self.get_logger().info(
-                f'\033[96mRobot : ({fb.current_pose.pose.position.x:.2f}, '
-                f'{fb.current_pose.pose.position.y:.2f}) | '
-                f'Restants : {fb.number_of_poses_remaining} | '
-                f'Distance : {fb.distance_remaining:.2f} m | '
-                f'ETA : {remaining_sec:.2f} '
-                f'Actual: {current_idx} | s\033[0m'
-            )
-            self._display_counter = 0
-
-        # ── Retransmission du feedback à l'action client externe ─────────────
-        if self._outer_goal_handle is not None:
-            feedback = NavigateWaypoints.Feedback()
-            feedback.current_waypoint_index = current_idx
-            feedback.waypoints_remaining = fb.number_of_poses_remaining
-            feedback.distance_remaining = fb.distance_remaining
-            feedback.estimated_time_remaining = remaining_sec
-            feedback.robot_x = fb.current_pose.pose.position.x
-            feedback.robot_y = fb.current_pose.pose.position.y
-            feedback.is_taking_photo = self._is_taking_photo
-            self._outer_goal_handle.publish_feedback(feedback)
-
-        # ── Détection d'un waypoint photo ────────────────────────────────────
-        if 0 <= current_idx < len(self._coords):
-            if self._take_photo[current_idx] and not self._photo_taken[current_idx]:
-                self.get_logger().info(
-                    f'📸 Waypoint photo détecté (idx {current_idx}), '
-                    'annulation du segment Nav2...'
-                )
-                self._photo_stop_idx = current_idx
-                if self._current_nav2_gh is not None:
-                    # Annulation interne : le execute_callback reprendra après
-                    self._current_nav2_gh.cancel_goal_async()
-
-    def _cb_rosout(self, msg: Log):
-        """Compte strictement les warnings planner 'no valid path found' pendant la mission active."""
-        if not self._monitor_planner_no_path:
-            return
-
-        if msg.name != 'planner_server':
-            return
-
-        text = msg.msg.lower()
-        if 'no valid path found' not in text:
-            return
-
-        self._planner_no_path_count += 1
-        self.get_logger().warn(
-            f'🧭 Planner no valid path found: '
-            f'{self._planner_no_path_count}/{self._max_planner_no_path}'
-        )
-
-        if (
-            self._planner_no_path_count >= self._max_planner_no_path
-            and not self._force_abort_due_to_no_path
-            and self._photo_stop_idx is None
-        ):
-            self._force_abort_due_to_no_path = True
-            self.get_logger().warn(
-                '⚠  Seuil planner no valid path found atteint — annulation du goal courant.'
-            )
-            if self._current_nav2_gh is not None:
-                self._current_nav2_gh.cancel_goal_async()
 
     def _update_sequential_progress(self, robot_x: float, robot_y: float) -> None:
         """
@@ -936,6 +866,105 @@ class WaypointActionServer(Node):
         finally:
             await self._set_allow_reversing(False)
 
+    # ── Feedback Nav2 --> retransmis au site web ─────────────────────────
+
+    def _nav2_feedback_callback(self, feedback_msg):
+        """
+        Reçoit le feedback Nav2 :
+          - Retransmet les informations à l'action client externe.
+          - Détecte les waypoints nécessitant une photo et déclenche l'arrêt interne.
+        """
+        fb = feedback_msg.feedback
+        # Mémoriser la position pour la réutiliser pendant la pause photo
+        self._last_robot_x = fb.current_pose.pose.position.x
+        self._last_robot_y = fb.current_pose.pose.position.y
+        remaining_sec = (
+            fb.estimated_time_remaining.sec
+            + fb.estimated_time_remaining.nanosec * 1e-9
+        )
+        # Calcul de l'index global du waypoint courant
+        current_idx = len(self._coords) - fb.number_of_poses_remaining - 1
+        self._last_nav2_remaining = int(fb.number_of_poses_remaining)
+        self._last_nav2_current_idx = int(current_idx)
+
+        self._update_sequential_progress(self._last_robot_x, self._last_robot_y)
+
+        # ── Affichage console (1 message sur 30, sauf changement de waypoint) ─
+        self._display_counter += 1
+        current_wp = None
+        if 0 <= current_idx < len(self._coords):
+            current_wp = self._coords[current_idx]
+
+        should_log = (self._display_counter % 30 == 0)
+        if current_wp is not None and current_wp != self._last_displayed_wp:
+            should_log = True
+
+        if should_log:
+            self._last_displayed_wp = current_wp
+            self.get_logger().info(
+                f'\033[96mRobot : ({fb.current_pose.pose.position.x:.2f}, '
+                f'{fb.current_pose.pose.position.y:.2f}) | '
+                f'Restants : {fb.number_of_poses_remaining} | '
+                f'Distance : {fb.distance_remaining:.2f} m | '
+                f'ETA : {remaining_sec:.2f} '
+                f'Actual: {current_idx} | s\033[0m'
+            )
+            self._display_counter = 0
+
+        # ── Retransmission du feedback à l'action client externe ─────────────
+        if self._outer_goal_handle is not None:
+            feedback = NavigateWaypoints.Feedback()
+            feedback.current_waypoint_index = current_idx
+            feedback.waypoints_remaining = fb.number_of_poses_remaining
+            feedback.distance_remaining = fb.distance_remaining
+            feedback.estimated_time_remaining = remaining_sec
+            feedback.robot_x = fb.current_pose.pose.position.x
+            feedback.robot_y = fb.current_pose.pose.position.y
+            feedback.is_taking_photo = self._is_taking_photo
+            self._outer_goal_handle.publish_feedback(feedback)
+
+        # ── Détection d'un waypoint photo ────────────────────────────────────
+        if 0 <= current_idx < len(self._coords):
+            if self._take_photo[current_idx] and not self._photo_taken[current_idx]:
+                self.get_logger().info(
+                    f'📸 Waypoint photo détecté (idx {current_idx}), '
+                    'annulation du segment Nav2...'
+                )
+                self._photo_stop_idx = current_idx
+                if self._current_nav2_gh is not None:
+                    # Annulation interne : le execute_callback reprendra après
+                    self._current_nav2_gh.cancel_goal_async()
+
+    def _cb_rosout(self, msg: Log):
+        """Compte strictement les warnings planner 'no valid path found' pendant la mission active."""
+        if not self._monitor_planner_no_path:
+            return
+
+        if msg.name != 'planner_server':
+            return
+
+        text = msg.msg.lower()
+        if 'no valid path found' not in text:
+            return
+
+        self._planner_no_path_count += 1
+        self.get_logger().warn(
+            f'🧭 Planner no valid path found: '
+            f'{self._planner_no_path_count}/{self._max_planner_no_path}'
+        )
+
+        if (
+            self._planner_no_path_count >= self._max_planner_no_path
+            and not self._force_abort_due_to_no_path
+            and self._photo_stop_idx is None
+        ):
+            self._force_abort_due_to_no_path = True
+            self.get_logger().warn(
+                '⚠  Seuil planner no valid path found atteint — annulation du goal courant.'
+            )
+            if self._current_nav2_gh is not None:
+                self._current_nav2_gh.cancel_goal_async()
+
     # ── Interface web (topics /ui/*) ─────────────────────────────────────────
 
     def _cb_ui_start(self, msg: String):
@@ -998,6 +1027,7 @@ class WaypointActionServer(Node):
                 self._pause_started_monotonic = time.monotonic()
                 self._last_cmd_input_monotonic = None
                 self._pause_manual_activity_seen = False
+                self._last_pause_feedback_monotonic = None
                 self.get_logger().warn('⏸ Pause mission activée (sans goal Nav2 actif).')
             return
 
@@ -1009,6 +1039,7 @@ class WaypointActionServer(Node):
             self._pause_started_monotonic = None
             self._last_cmd_input_monotonic = None
             self._pause_manual_activity_seen = False
+            self._last_pause_feedback_monotonic = None
             self.get_logger().info('▶ Resume web demandé')
             return
 
@@ -1032,6 +1063,40 @@ class WaypointActionServer(Node):
         self._last_cmd_input_monotonic = time.monotonic()
         self._pause_manual_activity_seen = True
 
+    def _publish_ui_pause_feedback(self, now_monotonic: float) -> None:
+        """Publie un feedback UI spécifique à la pause, avec compte à rebours watchdog."""
+        if self._pause_manual_activity_seen and self._last_cmd_input_monotonic is not None:
+            remaining = max(
+                0.0,
+                self._pause_resume_idle_cmd_sec - (now_monotonic - self._last_cmd_input_monotonic),
+            )
+            source = 'idle_cmd'
+        elif self._pause_started_monotonic is not None:
+            remaining = max(
+                0.0,
+                self._pause_resume_max_sec - (now_monotonic - self._pause_started_monotonic),
+            )
+            source = 'no_cmd'
+        else:
+            remaining = float(self._pause_resume_max_sec)
+            source = 'no_cmd'
+
+        current_idx = self._last_nav2_current_idx if self._last_nav2_current_idx >= 0 else 0
+        payload = {
+            'current_waypoint_index': int(current_idx),
+            'waypoints_remaining': max(0, len(self._coords) - self._start_idx),
+            'distance_remaining': 0.0,
+            'robot_x': float(self._last_robot_x),
+            'robot_y': float(self._last_robot_y),
+            'is_taking_photo': False,
+            'is_paused': True,
+            'pause_seconds_remaining': float(remaining),
+            'pause_watchdog_source': source,
+        }
+        msg = String()
+        msg.data = json.dumps(payload)
+        self._ui_feedback_pub.publish(msg)
+
     def _web_goal_response_callback(self, future):
         goal_handle = future.result()
         if not goal_handle.accepted:
@@ -1053,6 +1118,9 @@ class WaypointActionServer(Node):
             'robot_x':                  float(fb.robot_x),
             'robot_y':                  float(fb.robot_y),
             'is_taking_photo':          bool(fb.is_taking_photo),
+            'is_paused':                bool(self._is_paused),
+            'pause_seconds_remaining':  None,
+            'pause_watchdog_source':    None,
         }
         msg = String()
         msg.data = json.dumps(payload)

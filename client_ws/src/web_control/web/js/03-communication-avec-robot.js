@@ -146,17 +146,50 @@ missionFeedbackSub.subscribe(async (msg) => {
                       ? ' — ' + fb.distance_remaining.toFixed(1) + ' m' : '';
         const info  = document.getElementById('trajInfo');
         const isTakingPhoto = !!fb.is_taking_photo;
+        const isPaused = !!fb.is_paused;
         _currentlyTakingPhoto = isTakingPhoto;  // mémoriser pour l'odométrie RAF
-        const robot_actual_pos_x = fb.robot_x !== undefined ? fb.robot_x : null;
-        const robot_actual_pos_y = fb.robot_y !== undefined ? fb.robot_y : null;
+        // En pause, la position live doit venir uniquement de l'odométrie pour
+        // éviter les alternances visuelles avec le feedback mission périodique.
+        const robot_actual_pos_x = (!isPaused && fb.robot_x !== undefined) ? fb.robot_x : null;
+        const robot_actual_pos_y = (!isPaused && fb.robot_y !== undefined) ? fb.robot_y : null;
         
         // Mettre à jour l'index du waypoint actuel
         if (fb.current_waypoint_index !== undefined) {
             currentWaypointIndex = fb.current_waypoint_index;
         }
-        if (info) info.innerText = `🧭 Mission en cours – waypoint ${idx}/${total}${dist}`;
+
+        if (isPaused) {
+            missionPaused = true;
+            if (typeof setEmergencyButtonPausedState === 'function') {
+                setEmergencyButtonPausedState(true);
+            }
+
+            const pauseRemaining = Number.isFinite(fb.pause_seconds_remaining)
+                ? Math.max(0, Math.ceil(fb.pause_seconds_remaining))
+                : null;
+            const pauseReason = (fb.pause_watchdog_source === 'idle_cmd')
+                ? 'inactivité commandes manuelles'
+                : 'aucune commande manuelle';
+
+            if (info) {
+                info.innerText = (pauseRemaining !== null)
+                    ? `⏸ Mission en pause — reprise auto dans ${pauseRemaining}s (${pauseReason})`
+                    : '⏸ Mission en pause';
+            }
+        } else {
+            if (missionPaused) {
+                missionPaused = false;
+                if (typeof setEmergencyButtonPausedState === 'function') {
+                    setEmergencyButtonPausedState(false);
+                }
+            }
+            if (info) info.innerText = `🧭 Mission en cours – waypoint ${idx}/${total}${dist}`;
+        }
+
         // console.log('[MISSION] feedback reçu :', fb);
-        logEvent(`Mission en cours – waypoint ${idx}/${total}`, 'info');
+        if (!isPaused) {
+            logEvent(`Mission en cours – waypoint ${idx}/${total}`, 'info');
+        }
         if (isTakingPhoto) {
             logEvent(`📸 Prise de photo au waypoint ${idx}`, 'info');
         }

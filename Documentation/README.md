@@ -372,8 +372,8 @@ Starting arp-scan 1.10.0 with 256 hosts
 - Ajouter une gestion basique des erreurs (ex: camera offline, GPS perdu) avec feedback utilisateur.
 - Dès que la connexion avec le site web est rétablie, envoyer les vidéos et photos capturés pendant la coupure (actuellement perdus).
 - Rajouter code Matthieu (control du bras, dans les scripts .py et .js du site web)
-- Mettre en pause la navigation lorsque le controle de navigation est activé depuis le site web (service), et la reprendre lorsque le controle est désactivé.
-- Rajouter un service pour qu'on puisse pauser la navigation depuis le site web, et la reprendre depuis le site web.
+- rendre portable le systeme de coordonnées 
+
 
 ## 5.2 Priorite haute
 
