@@ -47,6 +47,7 @@ setup(
         'console_scripts': [
             'send_waypoints = navigation_pkg.send_waypoints:main',
             'waypoint_action_server = navigation_pkg.waypoint_action_server:main',
+            'cmd_vel_gate = navigation_pkg.cmd_vel_gate:main',
         ],
     },
 )

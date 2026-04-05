@@ -386,8 +386,8 @@ function createRobotPublisher(name, messageType, options = {}) {
 // 2. TOPICS
 // =======================================================================
 
-// Robot (TwistStamped - type imposé par un autre node)
-const cmdVelPub = createRobotPublisher('/cmd_vel', 'geometry_msgs/TwistStamped');
+// Robot (Twist non-stamped, le gate peut restamper si besoin)
+const cmdVelPub = createRobotPublisher('/robot/cmd_vel', 'geometry_msgs/Twist');
 
 // PTZ (Point: x, y)
 const ptzPub = createRobotPublisher('/camera/ptz', 'geometry_msgs/Point');

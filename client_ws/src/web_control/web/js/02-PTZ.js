@@ -2,42 +2,64 @@
 // 3. LOGIQUE DE CONTRÔLE
 // =======================================================================
 
-let robotSpeed = 0.5;
+
+
+function publishDriveCommand(linearX, angularZ) {
+    // Arret automatique de la mission si on bouge le robot manuellement
+    if (missionActive && (linearX !== 0.0 || angularZ !== 0.0)) {
+        toggleMission();
+        console.log('Mission interrompue par mouvement manuel.');
+    }
+
+    const msg = new ROSLIB.Message({
+        linear: { x: linearX, y: 0.0, z: 0.0 },
+        angular: { x: 0.0, y: 0.0, z: angularZ }
+    });
+
+    cmdVelPub.publish(msg);
+}
 
 function updateSpeed(val) {
-    robotSpeed = parseInt(val) / 100.0;
+    robotGlobalSpeed = parseInt(val) / 100.0;
     document.getElementById('speedVal').innerText = val + '%';
-    localStorage.setItem('robotSpeed', val);
+    localStorage.setItem('robotGlobalSpeed', val);
     logEvent(`Vitesse robot: ${val}%`, 'info');
 }
 
 // --- ROBOT (ZQSD) ---
+const robotSpeedMultiplier = 3.00; // Ajustement pour compenser les écarts de vitesse
+let robotGlobalSpeed = 0.50; // Valeur par défaut à 50%
+let robotTurningSpeed = 1.40 * 0.93;
+
 function sendCmd(direction) {
-    // 🛑 Arrêt automatique de la mission si on bouge le robot manuellement
-    if (missionActive && direction !== 'stop') {
-        toggleMission();
-        console.log("Mission interrompue par mouvement manuel.");
-    }
+    let linearX = 0.0;
+    let angularZ = 0.0;
 
-    // TwistStamped: structure avec header + twist
-    let msg = new ROSLIB.Message({
-        header: {
-            stamp: { sec: 0, nanosec: 0 },
-            frame_id: 'base_link'
-        },
-        twist: {
-            linear: { x: 0.0, y: 0.0, z: 0.0 },
-            angular: { x: 0.0, y: 0.0, z: 0.0 }
-        }
-    });
+    if (direction === 'up') linearX = 0.19 * robotGlobalSpeed*robotSpeedMultiplier;
+    if (direction === 'down') linearX = -0.19 * robotGlobalSpeed*robotSpeedMultiplier;
+    if (direction === 'left') angularZ = robotTurningSpeed * robotGlobalSpeed;
+    if (direction === 'right') angularZ = -robotTurningSpeed * robotGlobalSpeed;
 
-    if (direction === 'up')    msg.twist.linear.x = 0.19 * robotSpeed;
-    if (direction === 'down')  msg.twist.linear.x = -0.19 * robotSpeed;
-    if (direction === 'left')  msg.twist.angular.z = 2.80 * 0.93 *  robotSpeed;
-    if (direction === 'right') msg.twist.angular.z = -2.80 * 0.93 * robotSpeed;
-
-    cmdVelPub.publish(msg);
+    publishDriveCommand(linearX, angularZ);
     logEvent(`Robot: ${direction}`, 'info');
+}
+
+function sendCmdFromKeyboardState() {
+    const up = !!keyState['z'];
+    const down = !!keyState['s'];
+    const left = !!keyState['q'];
+    const right = !!keyState['d'];
+
+    let linearX = 0.0;
+    let angularZ = 0.0;
+
+    if (up && !down) linearX = 0.19 * robotGlobalSpeed*robotSpeedMultiplier;
+    else if (down && !up) linearX = -0.19 * robotGlobalSpeed*robotSpeedMultiplier;
+
+    if (left && !right) angularZ = robotTurningSpeed * robotGlobalSpeed;
+    else if (right && !left) angularZ = -robotTurningSpeed * robotGlobalSpeed;
+
+    publishDriveCommand(linearX, angularZ);
 }
 
 // --- PTZ (OKLM) ---
@@ -78,10 +100,7 @@ document.addEventListener('keydown', (event) => {
     if (keyToButton[key]) keyToButton[key].classList.add('active-key');
     if (['z','q','s','d','o','k','l','m'].includes(key)) logEvent(`Clavier: ${key.toUpperCase()}`, 'info');
 
-    if (key === 'z') sendCmd('up');
-    if (key === 's') sendCmd('down');
-    if (key === 'q') sendCmd('left');
-    if (key === 'd') sendCmd('right');
+    if (['z','q','s','d'].includes(key)) sendCmdFromKeyboardState();
 
     if (key === 'o') sendPtz('up');
     if (key === 'l') sendPtz('down');
@@ -95,7 +114,7 @@ document.addEventListener('keyup', (event) => {
 
     if (keyToButton[key]) keyToButton[key].classList.remove('active-key');
 
-    if (['z','q','s','d'].includes(key)) sendCmd('stop');
+    if (['z','q','s','d'].includes(key)) sendCmdFromKeyboardState();
     if (['o','k','l','m'].includes(key)) sendPtz('stop');
 });
 

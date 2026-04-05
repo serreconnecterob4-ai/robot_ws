@@ -30,14 +30,20 @@ def generate_launch_description():
         output='screen'
     )
 
+    gate_process = ExecuteProcess(
+        cmd=['python3', '-m', 'navigation_pkg.cmd_vel_gate'],
+        output='screen'
+    )
+
     # Stagger the start of each included launch / process to avoid race conditions
-    # Periods are cumulative from launch start (seconds): display 0s, ekf 2s, nav2 4s, waypoint 6s
     ekf_timer = TimerAction(period=6.0, actions=[ekf_include])
     nav2_timer = TimerAction(period=30.0, actions=[nav2_include])
     waypoint_timer = TimerAction(period=40.0, actions=[waypoint_process])
+    gate_timer = TimerAction(period=41.0, actions=[gate_process])
 
     return LaunchDescription([
         ekf_timer,
         nav2_timer,
         waypoint_timer,
+        gate_timer,
     ])
