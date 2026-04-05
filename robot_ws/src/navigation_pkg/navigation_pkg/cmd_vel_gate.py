@@ -56,10 +56,10 @@ class CmdVelGate(Node):
         )
         self._publish_zero_on_block = (
             self.get_parameter('publish_zero_on_block').get_parameter_value().bool_value
-        )
+        ) # option pour éviter de publier des cmd_vel zéro en boucle quand la téléop est bloquée
 
         self._state = MissionState()
-        self._was_blocked_last_cmd = False
+        self._was_blocked_last_cmd = False # pour éviter de publier des cmd_vel zéro en boucle quand la téléop est bloquée
 
         self._cmd_pub = self.create_publisher(
             TwistStamped,

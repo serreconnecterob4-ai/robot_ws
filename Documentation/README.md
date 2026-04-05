@@ -104,6 +104,8 @@ Différents éléments peuvent changer d'un lancement à l'autre, dont les modif
     - `client_ws/web_control/web_control/camera_publisher.py` à la ligne 18.
     - `client_ws/web_control/web_control/capture_manager.py` à la ligne 32.
 
+À renseigner côté robot :
+    Mettre l'ip Tailscale du client dans : 
 
 ## 1.3 Configuration utilisateur
 
@@ -297,9 +299,9 @@ Les packages principaux analyses dans `robot_ws/src` sont :
 
 ---- 
 
-L'IP même de la caméra peut changer d'un lancement à l'autre, il est donc nécessaire de la configurer à chaque fois. Par défaut, elle est configurée sur `10.42.0.188`.
+L'IP même de la caméra est fixée sur la valeur par défaut : elle est configurée sur `10.42.0.188`. Cependant si elle change accidentellement (reset des paramètres de la caméra ou autre modification importante coté réseau),
 
-Cependant il est possible de configurer l'IP de la caméra dans le code source du projet.
+Il est possible de configurer l'IP de la caméra dans le code source du projet.
 changer l'IP de la caméra dans les fichiers suivants :
 
     - franhf_ws/src/camera/camera/camera_control_node.py -- ligne 24
@@ -373,6 +375,8 @@ Starting arp-scan 1.10.0 with 256 hosts
 - Dès que la connexion avec le site web est rétablie, envoyer les vidéos et photos capturés pendant la coupure (actuellement perdus).
 - Rajouter code Matthieu (control du bras, dans les scripts .py et .js du site web)
 - rendre portable le systeme de coordonnées 
+- rajouter des commentaires au code (unités des mesures, remonter les parametres configurables etc..) 
+- documenter le code
 
 
 ## 5.2 Priorite haute

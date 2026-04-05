@@ -62,6 +62,17 @@ def generate_launch_description():
         }.items(),
     )
 
+    rosbridge_websocket = ExecuteProcess(
+        cmd=[
+            'ros2',
+            'launch',
+            'rosbridge_server',
+            'rosbridge_websocket_launch.xml',
+            'address:=0.0.0.0',
+        ],
+        output='screen',
+    )
+
 
     return LaunchDescription([
         # Expose the package's models/ directory to gz-sim so that
@@ -76,6 +87,7 @@ def generate_launch_description():
         ExecuteProcess(cmd=['gz', 'sim', '-g'], output='screen'),
         gz_server,
         ros_gz_bridge,
+        rosbridge_websocket,
         spawn_entity,
         robot_state_publisher_node,
         rviz_node,

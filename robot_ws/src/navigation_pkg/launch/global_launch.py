@@ -35,15 +35,44 @@ def generate_launch_description():
         output='screen'
     )
 
+    rosbridge_websocket = ExecuteProcess(
+        cmd=[
+            'ros2',
+            'launch',
+            'rosbridge_server',
+            'rosbridge_websocket_launch.xml',
+            'address:=0.0.0.0',
+        ],
+        output='screen',
+    )
+
+    odom_relay_process = ExecuteProcess(
+        cmd=[
+            'python3',
+            '-m',
+            'navigation_pkg.odom_rosbridge_relay',
+            '--ros-args',
+            '-p',
+            'bridge_host:=100.123.147.56',
+            '-p',
+            'bridge_port:=9090',
+        ],
+        output='screen'
+    )
+
     # Stagger the start of each included launch / process to avoid race conditions
     ekf_timer = TimerAction(period=6.0, actions=[ekf_include])
+    odom_relay_timer = TimerAction(period=8.0, actions=[odom_relay_process])
+    rosbridge_websocket_timer = TimerAction(period=10.0, actions=[rosbridge_websocket])
     nav2_timer = TimerAction(period=30.0, actions=[nav2_include])
     waypoint_timer = TimerAction(period=40.0, actions=[waypoint_process])
     gate_timer = TimerAction(period=41.0, actions=[gate_process])
 
     return LaunchDescription([
         ekf_timer,
+        odom_relay_timer,
+        rosbridge_websocket_timer,
         nav2_timer,
         waypoint_timer,
-        gate_timer,
+        gate_timer
     ])
