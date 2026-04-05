@@ -5,10 +5,29 @@
 
 
 function publishDriveCommand(linearX, angularZ) {
-    // Arret automatique de la mission si on bouge le robot manuellement
-    if (missionActive && (linearX !== 0.0 || angularZ !== 0.0)) {
-        toggleMission();
-        console.log('Mission interrompue par mouvement manuel.');
+    const hasManualMotion = (linearX !== 0.0 || angularZ !== 0.0);
+    let justPausedMission = false;
+
+    // Si mission en cours, un mouvement manuel demande une PAUSE (et non un cancel).
+    if (missionActive && !missionPaused && hasManualMotion) {
+        if (typeof missionCancelPub !== 'undefined') {
+            missionCancelPub.publish(new ROSLIB.Message({ data: 'pause' }));
+            justPausedMission = true;
+        }
+
+        missionPaused = true;
+        if (typeof setEmergencyButtonPausedState === 'function') {
+            setEmergencyButtonPausedState(true);
+        }
+
+        const info = document.getElementById('trajInfo');
+        if (info) info.innerText = '⏸ Mission en pause (contrôle manuel actif)';
+
+        if (typeof showToast === 'function') {
+            showToast('⏸️ Mission mise en pause pour contrôle manuel.', 'warn');
+        }
+        logEvent('Mission mise en pause par commande manuelle', 'warn');
+        console.log('Mission mise en pause par mouvement manuel.');
     }
 
     const msg = new ROSLIB.Message({
@@ -17,6 +36,14 @@ function publishDriveCommand(linearX, angularZ) {
     });
 
     cmdVelPub.publish(msg);
+
+    // Le premier cmd peut arriver juste avant la prise en compte de la pause côté gate.
+    // On republie une fois, très court délai, pour garantir la reprise de mouvement.
+    if (justPausedMission && hasManualMotion) {
+        setTimeout(() => {
+            cmdVelPub.publish(msg);
+        }, 120);
+    }
 }
 
 function updateSpeed(val) {

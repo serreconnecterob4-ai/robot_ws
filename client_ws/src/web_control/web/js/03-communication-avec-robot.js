@@ -1,17 +1,47 @@
 
 // Arrêt d'urgence
+function ensureEmergencyBlinkStyle() {
+    if (document.getElementById('emergency-blink-style')) return;
+
+    const style = document.createElement('style');
+    style.id = 'emergency-blink-style';
+    style.textContent = `
+        @keyframes emergencyResumeBlink {
+            0%, 100% {
+                opacity: 1;
+                transform: scale(1);
+                filter: brightness(1);
+            }
+            50% {
+                opacity: 0.62;
+                transform: scale(0.985);
+                filter: brightness(1.18);
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 function setEmergencyButtonPausedState(paused) {
     const btn = document.getElementById('btnEmergency');
     if (!btn) return;
 
     if (paused) {
+        ensureEmergencyBlinkStyle();
         btn.innerText = '▶ Reprendre la mission';
-        btn.style.backgroundColor = '#2ecc71';
-        btn.style.color = '#111';
+        btn.style.setProperty('background', 'linear-gradient(to bottom, #f1c40f, #d4ac0d)', 'important');
+        btn.style.setProperty('border-color', '#b7950b', 'important');
+        btn.style.setProperty('box-shadow', '0 0.6vh 1.2vh rgba(241, 196, 15, 0.55)', 'important');
+        btn.style.setProperty('color', '#ffffff', 'important');
+        btn.style.setProperty('transition', 'all 0.25s ease', 'important');
+        btn.style.animation = 'emergencyResumeBlink 1.25s ease-in-out infinite';
     } else {
         btn.innerText = '🛑 ARRÊT D\'URGENCE';
-        btn.style.backgroundColor = '';
-        btn.style.color = '';
+        btn.style.removeProperty('background');
+        btn.style.removeProperty('border-color');
+        btn.style.removeProperty('box-shadow');
+        btn.style.removeProperty('color');
+        btn.style.animation = '';
     }
 }
 
@@ -49,12 +79,14 @@ function emergencyStop() {
         logEvent('REPRISE APRÈS PAUSE D\'URGENCE', 'success');
     }
 
-    // Affiche une alerte visuelle
-    const btn = document.getElementById('btnEmergency');
-    btn.style.animation = 'pulse 0.5s 2';
-    setTimeout(() => {
-        btn.style.animation = '';
-    }, 1000);
+    // Affiche une alerte visuelle seulement hors mode pause clignotant.
+    if (!missionPaused) {
+        const btn = document.getElementById('btnEmergency');
+        btn.style.animation = 'pulse 0.5s 2';
+        setTimeout(() => {
+            btn.style.animation = '';
+        }, 1000);
+    }
 }
 
 
