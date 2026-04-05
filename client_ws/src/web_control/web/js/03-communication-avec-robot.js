@@ -1,32 +1,60 @@
 
 // Arrêt d'urgence
+function setEmergencyButtonPausedState(paused) {
+    const btn = document.getElementById('btnEmergency');
+    if (!btn) return;
+
+    if (paused) {
+        btn.innerText = '▶ Reprendre la mission';
+        btn.style.backgroundColor = '#2ecc71';
+        btn.style.color = '#111';
+    } else {
+        btn.innerText = '🛑 ARRÊT D\'URGENCE';
+        btn.style.backgroundColor = '';
+        btn.style.color = '';
+    }
+}
+
 function emergencyStop() {
-    // Publie l'arrêt d'urgence vers ROS2
-    emergencyPub.publish(new ROSLIB.Message({ data: true }));
-    
-    // Arrête tout mouvement du robot
-    sendCmd('stop');
-    sendPtz('stop');
-    
-    // Arrête la mission si active
-    if (missionActive) {
-        toggleMission();
+    if (!missionActive) {
+        showToast('⚠️ Aucune trajectoire en cours : rien à mettre en pause.', 'warn');
+        logEvent('Pause d\'urgence ignorée : aucune mission active', 'warn');
+        return;
     }
-    
-    // Arrête l'enregistrement vidéo si actif
-    if (isRecording) {
-        toggleVideo();
+
+    if (!missionPaused) {
+        // Publie l'arrêt d'urgence vers ROS2
+        emergencyPub.publish(new ROSLIB.Message({ data: true }));
+
+        // Arrête immédiatement les commandes manuelles
+        sendCmd('stop');
+        sendPtz('stop');
+
+        // Met en pause la mission en cours côté serveur ROS2
+        missionCancelPub.publish(new ROSLIB.Message({ data: 'pause' }));
+        missionPaused = true;
+        setEmergencyButtonPausedState(true);
+
+        showToast('⏸️ Mission en pause.', 'warn');
+        console.log('PAUSE D\'URGENCE ACTIVÉE');
+        logEvent('PAUSE D\'URGENCE ACTIVÉE', 'warn');
+    } else {
+        // Reprise explicite de la mission en pause
+        missionCancelPub.publish(new ROSLIB.Message({ data: 'resume' }));
+        missionPaused = false;
+        setEmergencyButtonPausedState(false);
+
+        showToast('▶️ Mission reprise.', 'success');
+        console.log('REPRISE APRÈS PAUSE D\'URGENCE');
+        logEvent('REPRISE APRÈS PAUSE D\'URGENCE', 'success');
     }
-    
+
     // Affiche une alerte visuelle
     const btn = document.getElementById('btnEmergency');
-    btn.style.animation = 'pulse 0.5s 3';
+    btn.style.animation = 'pulse 0.5s 2';
     setTimeout(() => {
         btn.style.animation = '';
-    }, 1500);
-    
-    console.log('ARRÊT D\'URGENCE ACTIVÉ');
-    logEvent('ARRÊT D\'URGENCE ACTIVÉ', 'error');
+    }, 1000);
 }
 
 
@@ -134,6 +162,8 @@ missionResultSub.subscribe((msg) => {
         const result = JSON.parse(msg.data);
         const btn = document.getElementById('btnMission');
         missionActive = false;
+        missionPaused = false;
+        setEmergencyButtonPausedState(false);
         currentWaypointIndex = -1;
         _currentlyTakingPhoto = false;
         hideRobotDot();

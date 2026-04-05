@@ -192,6 +192,8 @@ class WaypointActionServer(Node):
         self._max_planner_no_path: int = 6
         self._force_abort_due_to_no_path: bool = False
         self._monitor_planner_no_path: bool = False
+        self._pause_requested: bool = False
+        self._is_paused: bool = False
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
@@ -245,6 +247,8 @@ class WaypointActionServer(Node):
         self._planner_no_path_count = 0
         self._force_abort_due_to_no_path = False
         self._monitor_planner_no_path = False
+        self._pause_requested = False
+        self._is_paused = False
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -258,6 +262,18 @@ class WaypointActionServer(Node):
 
         # ── Boucle de navigation ─────────────────────────────────────────────
         while self._start_idx < len(self._coords):
+            if self._is_paused:
+                self.get_logger().warn('⏸ Mission en pause (attente resume ou cancel)...')
+                while self._is_paused and not goal_handle.is_cancel_requested:
+                    await self._safe_sleep(0.2)
+
+                if goal_handle.is_cancel_requested:
+                    self.get_logger().info('🛑 Mission annulée pendant la pause.')
+                    goal_handle.canceled()
+                    return self._make_result(False, "Mission annulée par l'opérateur")
+
+                self.get_logger().info('▶ Reprise de mission après pause.')
+
             # Annulation demandée par le web (bouton Stop)
             if goal_handle.is_cancel_requested:
                 self.get_logger().info('🛑 Annulation de la mission en cours...')
@@ -415,6 +431,14 @@ class WaypointActionServer(Node):
                 self._is_taking_photo = False
                 self.get_logger().info('\033[93m✅ Scan terminé, reprise de la navigation...\033[0m')
 
+            elif status == GoalStatus.STATUS_CANCELED and self._pause_requested:
+                self._pause_requested = False
+                self._is_paused = True
+                self.get_logger().warn(
+                    '⏸ Nav2 annulé pour pause opérateur. Mission en pause indéfinie.'
+                )
+                continue
+
             elif status in (GoalStatus.STATUS_ABORTED, GoalStatus.STATUS_CANCELED):
                 self._monitor_planner_no_path = False
                 if self._force_abort_due_to_no_path:
@@ -473,7 +497,7 @@ class WaypointActionServer(Node):
                     )
                     return self._make_result(False, msg)
 
-                escaped = await self._reverse_unstuck_to_goal(goal_handle, 20.0)
+                escaped = await self._reverse_unstuck_to_goal(goal_handle, 3.0)
 
                 if goal_handle.is_cancel_requested:
                     return self._make_result(False, "Mission annulée par l'opérateur")
@@ -898,7 +922,38 @@ class WaypointActionServer(Node):
         future.add_done_callback(self._web_goal_response_callback)
 
     def _cb_ui_cancel(self, _msg: String):
-        """Annule la mission en cours depuis le bouton Stop du site web."""
+        """Commande mission web: cancel, pause, ou resume."""
+        command = (_msg.data or '').strip().lower()
+
+        if command == 'pause':
+            if self._web_goal_handle is None:
+                self.get_logger().warn('Pause demandée mais aucune mission active')
+                return
+
+            if self._is_paused:
+                self.get_logger().warn('Mission déjà en pause')
+                return
+
+            self._pause_requested = True
+            self.get_logger().info('⏸ Pause web demandée')
+            if self._current_nav2_gh is not None:
+                self._current_nav2_gh.cancel_goal_async()
+            return
+
+        if command == 'resume':
+            if not self._is_paused:
+                self.get_logger().warn('Resume demandé mais mission non en pause')
+                return
+            self._is_paused = False
+            self.get_logger().info('▶ Resume web demandé')
+            return
+
+        if command != 'cancel':
+            self.get_logger().warn(
+                f"Commande /ui/cancel_mission inconnue: '{command}' (attendu: cancel|pause|resume)"
+            )
+            return
+
         if self._web_goal_handle is None:
             self.get_logger().warn('Annulation web demandée mais aucune mission active')
             return

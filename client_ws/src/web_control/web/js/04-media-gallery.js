@@ -51,6 +51,10 @@ function toggleMission() {
         }
 
         missionActive = true;
+        missionPaused = false;
+        if (typeof setEmergencyButtonPausedState === 'function') {
+            setEmergencyButtonPausedState(false);
+        }
         console.log('[MISSION] missionActive après toggle =', missionActive);
 
 
@@ -80,6 +84,10 @@ function toggleMission() {
         }
 
         missionActive = !missionActive;
+        missionPaused = false;
+        if (typeof setEmergencyButtonPausedState === 'function') {
+            setEmergencyButtonPausedState(false);
+        }
         console.log('[MISSION] missionActive après toggle =', missionActive);
         console.log('[MISSION] Annulation de la mission');
         currentWaypointIndex = -1;

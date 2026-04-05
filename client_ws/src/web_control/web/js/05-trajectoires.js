@@ -13,6 +13,7 @@ const thetaDegrees = 76.681;
 
 // Gestion Mission
 let missionActive = false;
+let missionPaused = false;
 let currentTrajectoryData = null;
 
 // Ratios carte (mis à jour à chaque chargement de trajet)
