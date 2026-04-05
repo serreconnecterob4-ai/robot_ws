@@ -42,21 +42,15 @@ def generate_launch_description():
 
     return LaunchDescription([
         # Lance MediaMTX (doit être exécutable dans ../mediamtx)
-        # ExecuteProcess(
-        #     cmd=[mediamtx_exec],
-        #     cwd=mediamtx_dir,
-        #     output='screen'
-        # ),
-        Node(
-            package='camera',
-            executable='camera_control_node',
-            name='camera_control_node',
+        ExecuteProcess(
+            cmd=[mediamtx_exec],
+            cwd=mediamtx_dir,
             output='screen'
         ),
         Node(
             package='camera',
-            executable='camera_publisher',
-            name='camera_publisher',
+            executable='camera_control_node',
+            name='camera_control_node',
             output='screen'
         )
     ])
