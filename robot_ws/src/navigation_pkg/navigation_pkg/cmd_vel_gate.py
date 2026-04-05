@@ -24,7 +24,6 @@ from geometry_msgs.msg import Twist, TwistStamped
 from rclpy.node import Node
 from std_msgs.msg import String
 
-
 @dataclass
 class MissionState:
     active: bool = False

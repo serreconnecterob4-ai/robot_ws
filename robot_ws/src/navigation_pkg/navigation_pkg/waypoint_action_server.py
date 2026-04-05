@@ -27,7 +27,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from action_msgs.msg import GoalStatus
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, Twist
 from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from navigation_interfaces.action import NavigateWaypoints
 from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
@@ -152,6 +152,15 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
 
+        # Activite teleop: utilise pour reprise auto watchdog pendant pause mission
+        self.create_subscription(
+            Twist,
+            '/robot/cmd_vel',
+            self._cb_cmd_vel_input,
+            30,
+            callback_group=self._cb_group,
+        )
+
         # Écoute des logs ROS pour compter uniquement les échecs planner "no valid path found"
         self.create_subscription(
             Log,
@@ -194,6 +203,11 @@ class WaypointActionServer(Node):
         self._monitor_planner_no_path: bool = False
         self._pause_requested: bool = False
         self._is_paused: bool = False
+        self._pause_started_monotonic: float | None = None
+        self._last_cmd_input_monotonic: float | None = None
+        self._pause_manual_activity_seen: bool = False
+        self._pause_resume_idle_cmd_sec: float = 60.0
+        self._pause_resume_max_sec: float = 300.0
         # Dernière position robot connue (mètres, repère map) – envoyée pendant la pause photo
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
@@ -249,6 +263,9 @@ class WaypointActionServer(Node):
         self._monitor_planner_no_path = False
         self._pause_requested = False
         self._is_paused = False
+        self._pause_started_monotonic = None
+        self._last_cmd_input_monotonic = None
+        self._pause_manual_activity_seen = False
         self._outer_goal_handle = goal_handle
 
         # ── Attente Nav2 ─────────────────────────────────────────────────────
@@ -265,6 +282,39 @@ class WaypointActionServer(Node):
             if self._is_paused:
                 self.get_logger().warn('⏸ Mission en pause (attente resume ou cancel)...')
                 while self._is_paused and not goal_handle.is_cancel_requested:
+                    now = time.monotonic()
+
+                    if (
+                        self._pause_started_monotonic is not None
+                        and (now - self._pause_started_monotonic) >= self._pause_resume_max_sec
+                    ):
+                        self.get_logger().warn(
+                            '▶ Reprise auto mission: pause max atteinte '
+                            f'({self._pause_resume_max_sec:.0f}s).'
+                        )
+                        self._is_paused = False
+                        self._pause_requested = False
+                        self._pause_started_monotonic = None
+                        self._last_cmd_input_monotonic = None
+                        self._pause_manual_activity_seen = False
+                        break
+
+                    if (
+                        self._pause_manual_activity_seen
+                        and self._last_cmd_input_monotonic is not None
+                        and (now - self._last_cmd_input_monotonic) >= self._pause_resume_idle_cmd_sec
+                    ):
+                        self.get_logger().warn(
+                            '▶ Reprise auto mission: inactivité cmd_vel '
+                            f'({self._pause_resume_idle_cmd_sec:.0f}s).'
+                        )
+                        self._is_paused = False
+                        self._pause_requested = False
+                        self._pause_started_monotonic = None
+                        self._last_cmd_input_monotonic = None
+                        self._pause_manual_activity_seen = False
+                        break
+
                     await self._safe_sleep(0.2)
 
                 if goal_handle.is_cancel_requested:
@@ -434,6 +484,9 @@ class WaypointActionServer(Node):
             elif status == GoalStatus.STATUS_CANCELED and self._pause_requested:
                 self._pause_requested = False
                 self._is_paused = True
+                self._pause_started_monotonic = time.monotonic()
+                self._last_cmd_input_monotonic = None
+                self._pause_manual_activity_seen = False
                 self.get_logger().warn(
                     '⏸ Nav2 annulé pour pause opérateur. Mission en pause indéfinie.'
                 )
@@ -938,6 +991,14 @@ class WaypointActionServer(Node):
             self.get_logger().info('⏸ Pause web demandée')
             if self._current_nav2_gh is not None:
                 self._current_nav2_gh.cancel_goal_async()
+            else:
+                # Pas de goal Nav2 actif: pause immédiate côté serveur mission.
+                self._pause_requested = False
+                self._is_paused = True
+                self._pause_started_monotonic = time.monotonic()
+                self._last_cmd_input_monotonic = None
+                self._pause_manual_activity_seen = False
+                self.get_logger().warn('⏸ Pause mission activée (sans goal Nav2 actif).')
             return
 
         if command == 'resume':
@@ -945,6 +1006,9 @@ class WaypointActionServer(Node):
                 self.get_logger().warn('Resume demandé mais mission non en pause')
                 return
             self._is_paused = False
+            self._pause_started_monotonic = None
+            self._last_cmd_input_monotonic = None
+            self._pause_manual_activity_seen = False
             self.get_logger().info('▶ Resume web demandé')
             return
 
@@ -959,6 +1023,14 @@ class WaypointActionServer(Node):
             return
         self.get_logger().info('🛑 Annulation web demandée')
         self._web_goal_handle.cancel_goal_async()
+
+    def _cb_cmd_vel_input(self, _msg: Twist):
+        """Marque l'activité cmd_vel pendant une pause pour le watchdog de reprise auto."""
+        if not self._is_paused:
+            return
+
+        self._last_cmd_input_monotonic = time.monotonic()
+        self._pause_manual_activity_seen = True
 
     def _web_goal_response_callback(self, future):
         goal_handle = future.result()
