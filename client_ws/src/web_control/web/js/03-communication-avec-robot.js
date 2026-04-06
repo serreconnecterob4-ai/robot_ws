@@ -222,8 +222,19 @@ missionFeedbackSub.subscribe(async (msg) => {
 });
 
 const missionResultSub = new ROSLIB.Topic({ ros, name: '/ui/mission_result', messageType: 'std_msgs/String' });
+let _lastMissionResultPayload = null;
+let _lastMissionResultAtMs = 0;
 missionResultSub.subscribe((msg) => {
     try {
+        const nowMs = Date.now();
+        const payload = (typeof msg.data === 'string') ? msg.data : JSON.stringify(msg.data);
+        // Ignore les republis ROS identiques très rapprochées pour éviter le spam UI/log.
+        if (payload === _lastMissionResultPayload && (nowMs - _lastMissionResultAtMs) < 5000) {
+            return;
+        }
+        _lastMissionResultPayload = payload;
+        _lastMissionResultAtMs = nowMs;
+
         const result = JSON.parse(msg.data);
         const btn = document.getElementById('btnMission');
         missionActive = false;
@@ -258,7 +269,6 @@ missionResultSub.subscribe((msg) => {
                 });
             }
         }
-        console.log('[MISSION] résultat reçu :', result);
     } catch(e) { console.error('[MISSION] erreur parsing result:', e); }
 });
 
