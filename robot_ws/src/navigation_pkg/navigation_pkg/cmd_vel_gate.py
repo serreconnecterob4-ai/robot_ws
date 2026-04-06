@@ -130,6 +130,10 @@ class CmdVelGate(Node):
         )
 
     def _on_mission_result(self, _msg: String) -> None:
+        # Evite une boucle de logs si plusieurs /ui/mission_result identiques arrivent.
+        if (not self._state.active) and (not self._state.paused):
+            return
+
         self._state.active = False
         self._state.paused = False
         self._log_state('mission result')
