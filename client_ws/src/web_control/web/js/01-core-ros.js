@@ -318,16 +318,25 @@ rosRobot.on('close', () => {
 });
 
 function createRobotPublisher(name, messageType, options = {}) {
-    const { robotOnly = false } = options;
-    const robotTopic = new ROSLIB.Topic({ ros: rosRobot, name, messageType });
-    const serverTopic = robotOnly ? null : new ROSLIB.Topic({ ros, name, messageType });
+    // Règle de routage explicite pour éviter les doublons entre rosbridge A (server)
+    // et rosbridge B (robot). Valeurs possibles: 'robot' | 'server' | 'both'.
+    const { route = 'robot', allowLocalFallback = true } = options;
+    const sendToRobot = route === 'robot' || route === 'both';
+    const sendToServer = route === 'server' || route === 'both';
+
+    const robotTopic = sendToRobot
+        ? new ROSLIB.Topic({ ros: rosRobot, name, messageType })
+        : null;
+    const serverTopic = sendToServer
+        ? new ROSLIB.Topic({ ros, name, messageType })
+        : null;
 
     return {
         publish(message) {
             let robotSent = false;
             let serverSent = false;
 
-            if (rosRobotConnected || robotOnly) {
+            if (sendToRobot && robotTopic && rosRobotConnected) {
                 try {
                     robotTopic.publish(message);
                     robotSent = true;
@@ -336,7 +345,7 @@ function createRobotPublisher(name, messageType, options = {}) {
                 }
             }
 
-            if (!robotOnly && rosServerConnected && serverTopic) {
+            if (sendToServer && serverTopic && rosServerConnected) {
                 try {
                     serverTopic.publish(message);
                     serverSent = true;
@@ -345,7 +354,7 @@ function createRobotPublisher(name, messageType, options = {}) {
                 }
             }
 
-            if (!robotSent && !serverSent) {
+            if (!robotSent && !serverSent && sendToServer && allowLocalFallback) {
                 console.warn(`Topic ${name} non envoyé (aucune connexion disponible)`);
                 // fallback: publish to a local rosbridge at localhost:9090
                 try {
@@ -387,29 +396,29 @@ function createRobotPublisher(name, messageType, options = {}) {
 // =======================================================================
 
 // Robot (Twist non-stamped, le gate peut restamper si besoin)
-const cmdVelPub = createRobotPublisher('/robot/cmd_vel', 'geometry_msgs/Twist');
+const cmdVelPub = createRobotPublisher('/robot/cmd_vel', 'geometry_msgs/Twist', { route: 'robot' });
 
 // PTZ (Point: x, y)
-const ptzPub = createRobotPublisher('/camera/ptz', 'geometry_msgs/Point');
+const ptzPub = createRobotPublisher('/camera/ptz', 'geometry_msgs/Point', { route: 'robot' });
 
 // Mission Status
-const missionPub = createRobotPublisher('/mission/status', 'std_msgs/Bool');
+const missionPub = createRobotPublisher('/mission/status', 'std_msgs/Bool', { route: 'server' });
 
 // Delete Image (Nouveau)
-const deletePub = createRobotPublisher('/camera/delete_image', 'std_msgs/String');
+const deletePub = createRobotPublisher('/camera/delete_image', 'std_msgs/String', { route: 'server' });
 
-const zoomPub = createRobotPublisher('/camera/zoom', 'std_msgs/Float32');
-const focusPub = createRobotPublisher('/camera/focus', 'std_msgs/Float32');
-const autofocusPub = createRobotPublisher('/camera/autofocus', 'std_msgs/Bool');
-const lightPub = createRobotPublisher('/camera/light', 'std_msgs/Bool');
-const alertPub = createRobotPublisher('/camera/alert', 'std_msgs/Bool');
-const robotVolumePub = createRobotPublisher('/robot/volume', 'std_msgs/Float32');
-const armSpeedPub = createRobotPublisher('/robot/arm_speed', 'std_msgs/Float32');
-const armPosPub = createRobotPublisher('/robot/arm_position', 'std_msgs/Float32');
-const clickPub = createRobotPublisher('/ui/click', 'geometry_msgs/Point');
+const zoomPub = createRobotPublisher('/camera/zoom', 'std_msgs/Float32', { route: 'robot' });
+const focusPub = createRobotPublisher('/camera/focus', 'std_msgs/Float32', { route: 'robot' });
+const autofocusPub = createRobotPublisher('/camera/autofocus', 'std_msgs/Bool', { route: 'robot' });
+const lightPub = createRobotPublisher('/camera/light', 'std_msgs/Bool', { route: 'robot' });
+const alertPub = createRobotPublisher('/camera/alert', 'std_msgs/Bool', { route: 'robot' });
+const robotVolumePub = createRobotPublisher('/robot/volume', 'std_msgs/Float32', { route: 'robot' });
+const armSpeedPub = createRobotPublisher('/robot/arm_speed', 'std_msgs/Float32', { route: 'robot' });
+const armPosPub = createRobotPublisher('/robot/arm_position', 'std_msgs/Float32', { route: 'robot' });
+const clickPub = createRobotPublisher('/ui/click', 'geometry_msgs/Point', { route: 'server' });
 
 // Logs UI
-const logPub = createRobotPublisher('/ui/system_logs', 'std_msgs/String');
+const logPub = createRobotPublisher('/ui/system_logs', 'std_msgs/String', { route: 'server' });
 
 function logEvent(message, level = 'info') {
     try {
@@ -422,7 +431,7 @@ function logEvent(message, level = 'info') {
 }
 
 // Topic pour l'arrêt d'urgence
-const emergencyPub = createRobotPublisher('/robot/emergency_stop', 'std_msgs/Bool');
+const emergencyPub = createRobotPublisher('/robot/emergency_stop', 'std_msgs/Bool', { route: 'both' });
 
 // Topic pour recevoir la liste des fichiers de trajectoire
 const trajListSub = new ROSLIB.Topic({ 

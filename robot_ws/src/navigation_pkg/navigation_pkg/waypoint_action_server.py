@@ -226,6 +226,11 @@ class WaypointActionServer(Node):
         self._last_pause_feedback_monotonic: float | None = None
         self._last_robot_x: float = 0.0
         self._last_robot_y: float = 0.0
+        self._ui_command_dedupe_sec: float = 0.8
+        self._last_ui_start_raw: str = ''
+        self._last_ui_start_monotonic: float = 0.0
+        self._last_ui_cancel_cmd: str = ''
+        self._last_ui_cancel_monotonic: float = 0.0
         # endregion
         
         self.get_logger().info('🚀 WaypointActionServer prêt, en attente d\'un goal...')
@@ -969,6 +974,18 @@ class WaypointActionServer(Node):
 
     def _cb_ui_start(self, msg: String):
         """Reçoit un JSON {waypoints_x, waypoints_y, take_photo} et lance la mission."""
+        raw_payload = (msg.data or '').strip()
+        now = time.monotonic()
+        if (
+            raw_payload
+            and raw_payload == self._last_ui_start_raw
+            and (now - self._last_ui_start_monotonic) < self._ui_command_dedupe_sec
+        ):
+            self.get_logger().warn('Commande /ui/start_mission dupliquee ignoree (anti-echo)')
+            return
+        self._last_ui_start_raw = raw_payload
+        self._last_ui_start_monotonic = now
+
         try:
             data = json.loads(msg.data)
         except json.JSONDecodeError as e:
@@ -1006,6 +1023,18 @@ class WaypointActionServer(Node):
     def _cb_ui_cancel(self, _msg: String):
         """Commande mission web: cancel, pause, ou resume."""
         command = (_msg.data or '').strip().lower()
+        now = time.monotonic()
+        if (
+            command
+            and command == self._last_ui_cancel_cmd
+            and (now - self._last_ui_cancel_monotonic) < self._ui_command_dedupe_sec
+        ):
+            self.get_logger().warn(
+                f"Commande /ui/cancel_mission dupliquee ignoree (anti-echo): '{command}'"
+            )
+            return
+        self._last_ui_cancel_cmd = command
+        self._last_ui_cancel_monotonic = now
 
         if command == 'pause':
             if self._web_goal_handle is None:
