@@ -94,7 +94,7 @@ class CaptureManager:
         finally:
             self.send_ptz_ros("Stop")
             self.stop_video()
-            self.node.gallery_mgr.publish_gallery()
+            #self.node.gallery_mgr.publish_gallery()
             self.node.get_logger().info("✅ Scan complet terminé.")
 
     def take_photo(self):

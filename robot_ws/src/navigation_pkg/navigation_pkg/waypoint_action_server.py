@@ -34,6 +34,7 @@ from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import String
 from camera.capture_manager import CaptureManager
+from camera.gallery_manager import GalleryManager
 
 
 def find_config_file(filename='config_gps.json'):
@@ -135,6 +136,7 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
         self._web_goal_handle = None
+        self._web_goal_pending = False
         
         # ── Publishers vers le site web ──────────────────────────────────────
         self._ui_feedback_pub = self.create_publisher(
@@ -183,6 +185,7 @@ class WaypointActionServer(Node):
         # region CaptureManager initalisation  ───────────────────────────────────────────────────
         gallery_path = os.path.expanduser('~/mission_gallery')
         os.makedirs(gallery_path, exist_ok=True)
+        self.gallery_mgr = GalleryManager(node=self, gallery_path=gallery_path)
         self._capture_mgr = CaptureManager(node=self, gallery_path=gallery_path)
         # endregion
 
@@ -974,6 +977,12 @@ class WaypointActionServer(Node):
 
     def _cb_ui_start(self, msg: String):
         """Reçoit un JSON {waypoints_x, waypoints_y, take_photo} et lance la mission."""
+        if self._web_goal_pending or self._web_goal_handle is not None:
+            self.get_logger().warn(
+                'Commande /ui/start_mission ignoree: mission deja en cours (anti-preemption)'
+            )
+            return
+
         raw_payload = (msg.data or '').strip()
         now = time.monotonic()
         if (
@@ -1014,6 +1023,7 @@ class WaypointActionServer(Node):
         goal.waypoints_y = waypoints_y
         goal.take_photo  = take_photo
 
+        self._web_goal_pending = True
         future = self._self_client.send_goal_async(
             goal,
             feedback_callback=self._web_feedback_callback,
@@ -1127,7 +1137,16 @@ class WaypointActionServer(Node):
         self._ui_feedback_pub.publish(msg)
 
     def _web_goal_response_callback(self, future):
-        goal_handle = future.result()
+        self._web_goal_pending = False
+        try:
+            goal_handle = future.result()
+        except Exception as exc:
+            self.get_logger().error(f'Erreur envoi goal mission web: {exc}')
+            err = String()
+            err.data = json.dumps({'success': False, 'message': 'Erreur envoi goal mission'})
+            self._ui_result_pub.publish(err)
+            return
+
         if not goal_handle.accepted:
             self.get_logger().error('Goal refusé par navigate_waypoints')
             err = String()
@@ -1156,6 +1175,7 @@ class WaypointActionServer(Node):
         self._ui_feedback_pub.publish(msg)
 
     def _web_result_callback(self, future):
+        self._web_goal_pending = False
         self._web_goal_handle = None
         result = future.result().result
         msg = String()
