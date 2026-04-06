@@ -142,6 +142,7 @@ class WebBackend(Node):
         # Initialisation des managers avec le dossier SÉCURISÉ
         self.capture_mgr = CaptureManager(self, self.gallery_dir)
         self.gallery_mgr = GalleryManager(self, self.gallery_dir)
+        self.configure_capture_source()
 
         QuietHandler.gallery_dir = self.gallery_dir
         QuietHandler.gallery_mgr = self.gallery_mgr
@@ -185,6 +186,35 @@ class WebBackend(Node):
         self.get_logger().info(f"Backend prêt. Web Port: {PORT_WEB}")
         self.publish_log("Backend initialisé", "success")
         self.start_web_server()
+
+    def configure_capture_source(self):
+        """Configure la source de capture ffmpeg à partir de web/configuration.json."""
+        config_path = os.path.join(self.web_dir, 'configuration.json')
+        if not os.path.exists(config_path):
+            self.get_logger().warning(f"Config vidéo introuvable: {config_path}")
+            return
+
+        try:
+            with open(config_path, 'r') as f:
+                cfg = json.load(f)
+
+            video_cfg = cfg.get('video', {}) if isinstance(cfg, dict) else {}
+            capture_url = video_cfg.get('capture_url') or video_cfg.get('rtsp_url')
+
+            if not capture_url:
+                host = str(video_cfg.get('host', '')).strip()
+                stream = str(video_cfg.get('stream', 'mystream')).strip('/')
+                rtsp_port = int(video_cfg.get('rtsp_port', 8554))
+
+                if host.lower() in ('', 'auto', 'localhost', '127.0.0.1'):
+                    host = 'localhost'
+
+                capture_url = f"rtsp://{host}:{rtsp_port}/{stream}"
+
+            self.capture_mgr.set_rtsp_url(capture_url)
+            self.publish_log(f"Source capture configurée: {capture_url}", "info")
+        except Exception as e:
+            self.get_logger().warning(f"Impossible de configurer la source capture: {e}")
     
     def publish_log(self, message, level="info"):
         """Publie un message de log sur le topic /ui/system_logs"""
