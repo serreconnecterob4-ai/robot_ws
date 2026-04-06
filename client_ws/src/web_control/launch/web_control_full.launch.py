@@ -11,7 +11,7 @@ def generate_launch_description():
             package='rosbridge_server',
             executable='rosbridge_websocket',
             name='rosbridge_websocket',
-            parameters=[{'address': '0.0.0.0'}],
+            parameters=[{'address':'0.0.0.0'}],
             output='screen'
         ),
         # 2. Camera Publisher (Streame les images RTSP sur /camera/clear)

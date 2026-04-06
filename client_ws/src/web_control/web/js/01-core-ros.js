@@ -2,8 +2,8 @@
 // 1. CONFIGURATION & CONNEXION
 // =======================================================================
 const serverIp = window.location.hostname;  // IP du serveur web
-const robotIp = "localhost";          // IP du robot/Raspberry
-const videoHost = serverIp === "" ? "localhost" : serverIp;
+const robotIp = "100.113.93.106";          // IP du robot/Raspberry
+const videoHost = serverIp === "" ? "100.113.93.106" : serverIp;
 let externalStreamUrl = "";
 
 // Vidéo WebRTC (faible latence)

@@ -1,6 +1,6 @@
 {
   "video": {
-    "host": "localhost",
+    "host": "100.113.93.106",
     "port": 8889, 
     "stream": "mystream"
   }
