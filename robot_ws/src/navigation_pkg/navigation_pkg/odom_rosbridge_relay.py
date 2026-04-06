@@ -6,6 +6,7 @@ import struct
 import threading
 import base64
 import hashlib
+import time
 from urllib.parse import urlparse
 
 import rclpy
@@ -154,6 +155,7 @@ class OdomRosbridgeRelay(Node):
         self.declare_parameter('mission_feedback_source_topic', '/ui/mission_feedback')
         self.declare_parameter('mission_feedback_target_topic', '/ui/mission_feedback')
         self.declare_parameter('reconnect_period_sec', 5.0)
+        self.declare_parameter('publish_rate_hz', 1.0)
 
         self.bridge_host = self.get_parameter('bridge_host').get_parameter_value().string_value
         self.bridge_port = self.get_parameter('bridge_port').get_parameter_value().integer_value
@@ -172,12 +174,15 @@ class OdomRosbridgeRelay(Node):
             'mission_feedback_target_topic'
         ).get_parameter_value().string_value
         self.reconnect_period_sec = self.get_parameter('reconnect_period_sec').get_parameter_value().double_value
+        self.publish_rate_hz = self.get_parameter('publish_rate_hz').get_parameter_value().double_value
 
         self.bridge_url = f'ws://{self.bridge_host}:{self.bridge_port}'
 
         self._ws = None
         self._ws_lock = threading.Lock()
         self._advertised_topics = set()
+        self._last_publish_time_by_topic = {}
+        self._min_publish_period_sec = 1.0 / max(0.01, float(self.publish_rate_hz))
 
         self._topic_specs = [
             {
@@ -270,6 +275,15 @@ class OdomRosbridgeRelay(Node):
         if self._ws is None:
             return
 
+        # Limite les publications continues (odom/feedback) au taux configure.
+        # Le resultat de mission doit partir immediatement.
+        if target_topic != self.mission_result_target_topic:
+            now = time.monotonic()
+            last = self._last_publish_time_by_topic.get(target_topic, 0.0)
+            if (now - last) < self._min_publish_period_sec:
+                return
+            self._last_publish_time_by_topic[target_topic] = now
+
         if target_topic not in self._advertised_topics:
             self._advertise_topic(target_topic, ros_type)
 
@@ -289,6 +303,7 @@ class OdomRosbridgeRelay(Node):
                     pass
             self._ws = None
             self._advertised_topics = set()
+            self._last_publish_time_by_topic = {}
 
     def destroy_node(self):
         self._close_ws()

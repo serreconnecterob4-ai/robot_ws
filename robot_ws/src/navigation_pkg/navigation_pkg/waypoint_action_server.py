@@ -34,7 +34,11 @@ from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
 from std_msgs.msg import String
 from camera.capture_manager import CaptureManager
-from camera.gallery_manager import GalleryManager
+
+
+class _NoOpGalleryManager:
+    def publish_gallery(self):
+        return
 
 
 def find_config_file(filename='config_gps.json'):
@@ -185,7 +189,9 @@ class WaypointActionServer(Node):
         # region CaptureManager initalisation  ───────────────────────────────────────────────────
         gallery_path = os.path.expanduser('~/mission_gallery')
         os.makedirs(gallery_path, exist_ok=True)
-        self.gallery_mgr = GalleryManager(node=self, gallery_path=gallery_path)
+        # Le serveur mission ne doit pas publier /ui/gallery_files en continu.
+        # On garde un objet compatible pour CaptureManager si besoin.
+        self.gallery_mgr = _NoOpGalleryManager()
         self._capture_mgr = CaptureManager(node=self, gallery_path=gallery_path)
         # endregion
 
