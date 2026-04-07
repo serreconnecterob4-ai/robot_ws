@@ -141,6 +141,7 @@ class WaypointActionServer(Node):
         )
         self._web_goal_handle = None
         self._web_goal_pending = False
+        self._current_ui_mission_id = ''
         
         # ── Publishers vers le site web ──────────────────────────────────────
         self._ui_feedback_pub = self.create_publisher(
@@ -1010,12 +1011,17 @@ class WaypointActionServer(Node):
         waypoints_x = [float(v) for v in data.get('waypoints_x', [])]
         waypoints_y = [float(v) for v in data.get('waypoints_y', [])]
         take_photo  = [bool(v)  for v in data.get('take_photo',  [])]
+        incoming_mission_id = str(data.get('mission_id', '')).strip()
 
         if not waypoints_x:
             self.get_logger().warn('Aucun waypoint reçu — mission ignorée')
             return
 
         self.get_logger().info(f'🌐 Mission web reçue : {len(waypoints_x)} waypoints')
+        if incoming_mission_id:
+            self._current_ui_mission_id = incoming_mission_id
+        else:
+            self._current_ui_mission_id = f'm_{int(time.time() * 1000)}'
 
         if not self._self_client.server_is_ready():
             self.get_logger().error('Action server navigate_waypoints non disponible')
@@ -1137,6 +1143,7 @@ class WaypointActionServer(Node):
             'is_paused': True,
             'pause_seconds_remaining': float(remaining),
             'pause_watchdog_source': source,
+            'mission_id': self._current_ui_mission_id,
         }
         msg = String()
         msg.data = json.dumps(payload)
@@ -1175,6 +1182,7 @@ class WaypointActionServer(Node):
             'is_paused':                bool(self._is_paused),
             'pause_seconds_remaining':  None,
             'pause_watchdog_source':    None,
+            'mission_id':               self._current_ui_mission_id,
         }
         msg = String()
         msg.data = json.dumps(payload)
@@ -1185,8 +1193,13 @@ class WaypointActionServer(Node):
         self._web_goal_handle = None
         result = future.result().result
         msg = String()
-        msg.data = json.dumps({'success': result.success, 'message': result.message})
+        msg.data = json.dumps({
+            'success': result.success,
+            'message': result.message,
+            'mission_id': self._current_ui_mission_id,
+        })
         self._ui_result_pub.publish(msg)
+        self._current_ui_mission_id = ''
         self.get_logger().info(
             f'🌐 Résultat publié sur /ui/mission_result : success={result.success}'
         )

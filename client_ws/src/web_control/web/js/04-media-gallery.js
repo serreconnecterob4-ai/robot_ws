@@ -69,9 +69,10 @@ function toggleMission() {
         btn.innerText = '🛑 Arrêter la mission';
         btn.className = 'mission-btn stop';
 
+        activeMissionRequestId = `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 
         missionStartPub.publish(new ROSLIB.Message({
-            data: JSON.stringify({ waypoints_x, waypoints_y, take_photo })
+            data: JSON.stringify({ waypoints_x, waypoints_y, take_photo, mission_id: activeMissionRequestId })
         }));
 
         const selectedTrajectory = document.getElementById('trajSelect')?.value;
@@ -105,6 +106,7 @@ function toggleMission() {
         hideRobotDot();
 
         missionCancelPub.publish(new ROSLIB.Message({ data: 'cancel' }));
+        activeMissionRequestId = null;
 
         const info = document.getElementById('trajInfo');
         if (info) info.innerText = 'Mission annulée';

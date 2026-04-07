@@ -1,6 +1,7 @@
 import cv2
 import os
 import time
+import threading
 from datetime import datetime
 from geometry_msgs.msg import Point
 
@@ -17,6 +18,10 @@ class CaptureManager:
         self.rtsp_url = "rtsp://admin:ros2_2025@10.42.0.188:554/h264Preview_01_main"
         self.recording = False
         self.video_writer = None
+        self._record_thread = None
+        self._cap_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._scan_active = False
 
         # Connexion directe au flux RTSP (plus de topic ROS ni de CvBridge)
         self.cap = cv2.VideoCapture(self.rtsp_url)
@@ -27,9 +32,11 @@ class CaptureManager:
 
     def _get_frame(self):
         """Lit une frame depuis le flux RTSP."""
-        if not self.cap.isOpened():
-            return None
-        ret, frame = self.cap.read()
+        # OpenCV/FFmpeg n'est pas thread-safe sur un meme VideoCapture.
+        with self._cap_lock:
+            if not self.cap.isOpened():
+                return None
+            ret, frame = self.cap.read()
         return frame if ret else None
 
     def send_ptz_ros(self, op):
@@ -48,9 +55,17 @@ class CaptureManager:
 
     def run_auto_scan(self):
         """Scan complet en Z : Aller (Haut/Droite) -> Descente -> Retour (Bas/Gauche)"""
+        with self._state_lock:
+            if self._scan_active:
+                self.node.get_logger().warn('Scan deja en cours, commande ignoree.')
+                return
+            self._scan_active = True
+
         frame = self._get_frame()
         if frame is None:
             self.node.get_logger().error("❌ Scan Serre : Flux RTSP absent.")
+            with self._state_lock:
+                self._scan_active = False
             return
 
         self.start_video()
@@ -96,6 +111,8 @@ class CaptureManager:
             self.stop_video()
             #self.node.gallery_mgr.publish_gallery()
             self.node.get_logger().info("✅ Scan complet terminé.")
+            with self._state_lock:
+                self._scan_active = False
 
     def take_photo(self):
         """Capture une frame depuis le flux RTSP et la sauvegarde en JPEG."""
@@ -110,8 +127,9 @@ class CaptureManager:
 
     def start_video(self):
         """Démarre l'enregistrement vidéo depuis le flux RTSP."""
-        if self.recording:
-            return False, "Enregistrement déjà en cours"
+        with self._state_lock:
+            if self.recording:
+                return False, "Enregistrement déjà en cours"
         frame = self._get_frame()
         if frame is None:
             return False, "Flux RTSP indisponible"
@@ -122,11 +140,11 @@ class CaptureManager:
         self.video_writer = cv2.VideoWriter(
             path, cv2.VideoWriter_fourcc(*'avc1'), 15.0, (w, h)
         )
-        self.recording = True
+        with self._state_lock:
+            self.recording = True
         self.node.get_logger().info(f"🎥 Enregistrement démarré : {path}")
 
         # Lance l'écriture des frames en continu dans un thread dédié
-        import threading
         self._record_thread = threading.Thread(target=self._record_loop, daemon=True)
         self._record_thread.start()
 
@@ -134,7 +152,10 @@ class CaptureManager:
 
     def _record_loop(self):
         """Boucle d'écriture des frames vidéo (tourne dans un thread séparé)."""
-        while self.recording:
+        while True:
+            with self._state_lock:
+                if not self.recording:
+                    break
             frame = self._get_frame()
             if frame is not None and self.video_writer is not None:
                 self.video_writer.write(frame)
@@ -142,9 +163,14 @@ class CaptureManager:
 
     def stop_video(self):
         """Arrête l'enregistrement vidéo."""
-        self.recording = False
-        if hasattr(self, '_record_thread'):
-            self._record_thread.join(timeout=2.0)
+        with self._state_lock:
+            self.recording = False
+            thread = self._record_thread
+            self._record_thread = None
+
+        if thread is not None:
+            thread.join(timeout=2.0)
+
         if self.video_writer:
             self.video_writer.release()
             self.video_writer = None

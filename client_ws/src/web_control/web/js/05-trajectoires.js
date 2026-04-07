@@ -15,6 +15,7 @@ const thetaDegrees = 76.681;
 let missionActive = false;
 let missionPaused = false;
 let currentTrajectoryData = null;
+let activeMissionRequestId = null;
 
 // Ratios carte (mis à jour à chaque chargement de trajet)
 let mapRatioX = 1, mapRatioY = 1;

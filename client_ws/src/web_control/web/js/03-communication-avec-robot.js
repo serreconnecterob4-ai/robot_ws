@@ -117,6 +117,9 @@ const missionFeedbackSub = new ROSLIB.Topic({ ros, name: '/ui/mission_feedback',
 missionFeedbackSub.subscribe(async (msg) => {
     try {
         const fb    = JSON.parse(msg.data);
+        if (activeMissionRequestId && fb && fb.mission_id && fb.mission_id !== activeMissionRequestId) {
+            return;
+        }
         // Ignore les feedbacks résiduels si aucune mission n'est active côté IHM.
         if (!missionActive && !missionPaused) {
             return;
@@ -234,6 +237,11 @@ let _lastMissionResultPayload = null;
 let _lastMissionResultAtMs = 0;
 missionResultSub.subscribe((msg) => {
     try {
+        const result = JSON.parse(msg.data);
+        if (activeMissionRequestId && result && result.mission_id && result.mission_id !== activeMissionRequestId) {
+            return;
+        }
+
         // Ignore tout resultat si l'IHM n'est pas en mission active/pause.
         // Cela coupe les spams infinis dus aux republis/echo tardifs.
         if (!missionActive && !missionPaused) {
@@ -249,10 +257,10 @@ missionResultSub.subscribe((msg) => {
         _lastMissionResultPayload = payload;
         _lastMissionResultAtMs = nowMs;
 
-        const result = JSON.parse(msg.data);
         const btn = document.getElementById('btnMission');
         missionActive = false;
         missionPaused = false;
+        activeMissionRequestId = null;
         setEmergencyButtonPausedState(false);
         currentWaypointIndex = -1;
         _currentlyTakingPhoto = false;
