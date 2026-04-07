@@ -1,6 +1,14 @@
 import cv2
 import numpy as np
 
+angle = 76.681
+px_original = 26.6833333333
+py_original = 184.133333333
+origin_width = 9966
+mini_width = 1661
+px_mini = px_original * mini_width / origin_width
+py_mini = py_original * mini_width / origin_width
+
 def rotate_image(input_path, output_path, angle):
     # Charger l'image
     img = cv2.imread(input_path, cv2.IMREAD_UNCHANGED)
@@ -35,10 +43,9 @@ def transform_point(M, x, y):
     return transformed[0], transformed[1]
 
 # rotation
-M = rotate_image("map.pgm", "map_rotated.pgm", 76.681)
+M = rotate_image("map.pgm", "map_rotated.pgm", angle)
 
 # coordonnées du point original
-px, py = 26.6833333333, 184.133333333
 new_px, new_py = transform_point(M, px, py)
 print(f"Point original     : x = {px:.6f} px, y = {py:.6f} px")
 print(f"Point après rotation: x = {new_px:.6f} px, y = {new_py:.6f} px")

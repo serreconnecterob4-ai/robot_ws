@@ -28,8 +28,6 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'fake_robot = gps_package.fake_robot:main',
-            'gps_visualizer = gps_package.gps_visualizer:main',
         ],
     },
 )

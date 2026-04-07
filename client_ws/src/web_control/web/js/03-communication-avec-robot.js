@@ -212,16 +212,14 @@ missionFeedbackSub.subscribe(async (msg) => {
             const pos = meters_to_pixels(robot_actual_pos_x, robot_actual_pos_y, map_size.width, map_size.height);
             const pixel_x = pos.pixel_x;
             const pixel_y = pos.pixel_y;
-            // store last known pixel for lock mode
+            // Mise à jour synchrone de la position (pas de DOM ici)
             lastKnownRobotPixel = { x: pixel_x, y: pixel_y };
             lastKnownRobotPosition = { x: robot_actual_pos_x, y: robot_actual_pos_y };
-            // console.log(`Position robot (pixels, lastknownrobotpixel): (${lastKnownRobotPixel.x.toFixed(1)}, ${lastKnownRobotPixel.y.toFixed(1)})`);  
-            // console.log(`Position robot (mètres, lastknownrobotposition): (${lastKnownRobotPosition.x.toFixed(2)}, ${lastKnownRobotPosition.y.toFixed(2)})`);
             updateRobotDotOnMap(pixel_x, pixel_y, isTakingPhoto);
             try {
                 const controller = mapArea && mapArea._panController;
                 if (controller && controller.mode === 'lock') {
-                    // update stored lock pixel and recenter the displayed background
+                    // mettre à jour la position cible du lock (sinon elle serait figée au point de départ du lock)
                     mapArea.dataset.lockPixel = `${pixel_x},${pixel_y}`;
                     await controller.lockToPixel(pixel_x, pixel_y);
                 }

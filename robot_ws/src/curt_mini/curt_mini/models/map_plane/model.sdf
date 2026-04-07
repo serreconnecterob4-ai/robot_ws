@@ -34,7 +34,7 @@
           <plane>
             <normal>0 0 1</normal>
             <!-- Keep the same dimensions as the collision above -->
-            <size>265.265022 69.789774</size>
+            <size>265.265022 69.789774</size> <!-- resolution*taille(pixels)-->
           </plane>
         </geometry>
         <material>

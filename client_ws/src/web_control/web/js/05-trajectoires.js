@@ -630,7 +630,6 @@ function meters_to_pixels(x, y, imageSize_x , imageSize_y) {
     const ratio_conversion_width = origin_map_size.width / imageSize_x;
     const ratio_conversion_height = origin_map_size.height / imageSize_y;
 
-    const thetaDegrees = 76.681
     const thetaRad = thetaDegrees * Math.PI / 180;
     const cosTheta = Math.cos(thetaRad);
     const sinTheta = Math.sin(thetaRad);
