@@ -54,6 +54,7 @@ setup(
     entry_points={
         'console_scripts': [
             'backend_node = web_control.backend_node:main',
+            'camera_publisher = web_control.camera_publisher:main',
         ],
     },
 )

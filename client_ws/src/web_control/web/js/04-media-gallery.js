@@ -196,8 +196,14 @@ function takePhoto() {
         return;
     }
 
-    logEvent('❌ Prise photo indisponible: flux WebRTC absent', 'error');
-    showToast('❌ Prise photo impossible sans flux WebRTC actif.', 'error');
+    console.log('[PHOTO] Mode ROS2: WebRTC non disponible, appel service ROS2');
+    logEvent('[PHOTO] 📱 Mode ROS2 - Appel au service /camera/take_photo', 'info');
+    
+    photoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
+        console.log('[PHOTO] Réponse ROS2:', res);
+        logEvent(res.success ? '✅ Photo prise (ROS2)' : '❌ Erreur prise photo (ROS2)', res.success ? 'success' : 'error');
+        alert(res.success ? "📸 Prise !" : "Erreur");
+    });
 }
 
 function toggleVideo() {
@@ -298,8 +304,49 @@ function toggleVideo() {
         return;
     }
 
-    logEvent('❌ Enregistrement indisponible: flux WebRTC absent', 'error');
-    showToast('❌ Enregistrement impossible sans flux WebRTC actif.', 'error');
+    console.log('[VIDEO] Mode WebRTC NON disponible, utilisation ROS2');
+    logEvent('[VIDEO] Mode ROS2 (WebRTC indisponible)', 'info');
+
+    if (!isRecording) {
+        console.log('[VIDEO] ROS2: Démarrage enregistrement');
+        logEvent('[VIDEO] 🔴 ROS2: Démarrage enregistrement', 'info');
+        
+        startVideoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
+            console.log('[VIDEO] ROS2 startVideo réponse:', res);
+            if (res.success) {
+                isRecording = true;
+                btn.innerText = "⏹ STOP";
+                btn.style.backgroundColor = "black";
+                console.log('[VIDEO] ROS2: Enregistrement démarré');
+                logEvent('✅ Enregistrement vidéo démarré (ROS2)', 'success');
+            } else {
+                console.error('[VIDEO] ROS2: Erreur démarrage');
+                logEvent('❌ Erreur démarrage vidéo ROS2', 'error');
+            }
+        });
+    } else {
+        console.log('[VIDEO] ROS2: Arrêt enregistrement');
+        logEvent('[VIDEO] 🛑 ROS2: Arrêt enregistrement', 'info');
+        
+        // Mettre à jour l'UI IMMÉDIATEMENT (sans attendre la réponse du service)
+        isRecording = false;
+        btn.innerText = "🔴 REC";
+        btn.style.backgroundColor = "#e74c3c";
+        console.log('[VIDEO] UI mise à jour immédiatement');
+        
+        stopVideoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
+            console.log('[VIDEO] ROS2 stopVideo réponse:', res);
+            if (res.success) {
+                console.log('[VIDEO] ROS2: Enregistrement arrêté');
+                logEvent('✅ Enregistrement vidéo arrêté (ROS2)', 'success');
+            } else {
+                console.error('[VIDEO] ROS2: Erreur arrêt');
+                logEvent('❌ Erreur arrêt vidéo ROS2', 'error');
+                // Si echec, essayer de réinitialiser
+                isRecording = false;
+            }
+        });
+    }
 }
 
 // Galerie & Suppression

@@ -16,6 +16,9 @@ class GalleryManager:
         self.node = node
         self.gallery_path = gallery_path
         self.pub = self.node.create_publisher(String, '/ui/gallery_files', 10)
+        
+        # Timer pour mettre à jour la galerie (1/30Hz)
+        self.timer = self.node.create_timer(30.0, self.publish_gallery)
 
     def publish_gallery(self):
         if not os.path.exists(self.gallery_path):
