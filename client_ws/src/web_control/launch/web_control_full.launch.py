@@ -14,14 +14,7 @@ def generate_launch_description():
             parameters=[{'address':'0.0.0.0'}],
             output='screen'
         ),
-        # 2. Camera Publisher (Streame les images RTSP sur /camera/clear)
-        Node(
-            package='web_control',
-            executable='camera_publisher',
-            name='camera_publisher',
-            output='screen'
-        ),
-        # 3. Backend Custom (Logique + Serveur Web Port 8000)
+        # 2. Backend Custom (Logique + Serveur Web Port 8000)
         Node(
             package='web_control',
             executable='backend_node',

@@ -483,8 +483,5 @@ batterySub.subscribe((msg) => {
     }
 });
 
-// Services
-const photoClient = new ROSLIB.Service({ ros: ros, name: '/camera/take_photo', serviceType: 'std_srvs/Trigger' });
-const startVideoClient = new ROSLIB.Service({ ros: ros, name: '/camera/start_video', serviceType: 'std_srvs/Trigger' });
-const stopVideoClient = new ROSLIB.Service({ ros: ros, name: '/camera/stop_video', serviceType: 'std_srvs/Trigger' });
+// Services média retirés: l'UI envoie désormais directement les fichiers en HTTP.
 
