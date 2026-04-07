@@ -5,8 +5,12 @@ import threading
 import http.server
 import socketserver
 from urllib.parse import urlparse, parse_qs
+from urllib import error as url_error
+from urllib import parse as url_parse
+from urllib import request as url_request
 import shutil
 import json
+import time
 from datetime import datetime
 from ament_index_python.packages import get_package_share_directory
 from std_srvs.srv import Trigger
@@ -86,6 +90,24 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 class WebBackend(Node):
     def __init__(self):
         super().__init__('web_backend')
+
+        self.declare_parameter('robot_gallery_sync_enabled', True)
+        self.declare_parameter('robot_gallery_host', '100.113.93.106')
+        self.declare_parameter('robot_gallery_port', 8092)
+        self.declare_parameter('robot_gallery_sync_period_sec', 10.0)
+        self.declare_parameter('robot_gallery_timeout_sec', 3.0)
+
+        self.robot_gallery_sync_enabled = bool(self.get_parameter('robot_gallery_sync_enabled').value)
+        self.robot_gallery_host = str(self.get_parameter('robot_gallery_host').value)
+        self.robot_gallery_port = int(self.get_parameter('robot_gallery_port').value)
+        self.robot_gallery_sync_period_sec = float(self.get_parameter('robot_gallery_sync_period_sec').value)
+        self.robot_gallery_timeout_sec = float(self.get_parameter('robot_gallery_timeout_sec').value)
+
+        self._sync_lock = threading.Lock()
+        self._sync_in_progress = False
+        self._robot_gallery_online = False
+        self._last_mission_result_payload = ''
+        self._last_mission_result_at = 0.0
         
         # 1. Chemin vers les fichiers du site Web (HTML/JS) - Dossier d'installation ROS
         package_share = get_package_share_directory('web_control')
@@ -170,6 +192,9 @@ class WebBackend(Node):
         
         # Subscriber pour arrêt d'urgence
         self.create_subscription(Bool, '/robot/emergency_stop', self.cb_emergency_stop, 10)
+
+        # Déclenche une synchro immédiate des médias robot à la fin de mission
+        self.create_subscription(String, '/ui/mission_result', self.cb_mission_result, 10)
         
         # Publisher pour la liste des trajectoires
         self.traj_list_pub = self.create_publisher(String, '/ui/trajectory_files', 10)
@@ -180,12 +205,129 @@ class WebBackend(Node):
         # Timer pour publier la liste des trajectoires périodiquement
         self.create_timer(2.0, self.publish_trajectory_list)
 
+        # Synchronisation périodique robot -> client (fichiers galerie)
+        self.create_timer(max(1.0, self.robot_gallery_sync_period_sec), self._schedule_periodic_gallery_sync)
+
         self.httpd = None
         self.server_thread = None
 
         self.get_logger().info(f"Backend prêt. Web Port: {PORT_WEB}")
         self.publish_log("Backend initialisé", "success")
         self.start_web_server()
+        self._schedule_gallery_sync('startup')
+
+    def _robot_gallery_base_url(self):
+        return f'http://{self.robot_gallery_host}:{self.robot_gallery_port}'
+
+    def _schedule_periodic_gallery_sync(self):
+        self._schedule_gallery_sync('periodic')
+
+    def _schedule_gallery_sync(self, reason='manual'):
+        if not self.robot_gallery_sync_enabled:
+            return
+
+        with self._sync_lock:
+            if self._sync_in_progress:
+                return
+            self._sync_in_progress = True
+
+        threading.Thread(
+            target=self._sync_gallery_worker,
+            args=(reason,),
+            daemon=True,
+        ).start()
+
+    def _sync_gallery_worker(self, reason='manual'):
+        try:
+            remote_files = self._fetch_robot_gallery_list()
+            if not self._robot_gallery_online:
+                self._robot_gallery_online = True
+                self.get_logger().info(
+                    f'Robot gallery online ({self._robot_gallery_base_url()})'
+                )
+
+            local_files = set(
+                f for f in os.listdir(self.gallery_dir)
+                if os.path.isfile(os.path.join(self.gallery_dir, f))
+            )
+            missing = [name for name in remote_files if name not in local_files]
+
+            downloaded = 0
+            for name in missing:
+                if self._download_robot_gallery_file(name):
+                    downloaded += 1
+
+            if downloaded > 0:
+                self.get_logger().info(
+                    f'Sync galerie ({reason}): {downloaded} nouveau(x) fichier(s) telecharge(s).'
+                )
+                self.gallery_mgr.publish_gallery()
+
+        except Exception as e:
+            if self._robot_gallery_online:
+                self.get_logger().warning(
+                    f'Robot gallery offline ({self._robot_gallery_base_url()}): {e}'
+                )
+            self._robot_gallery_online = False
+        finally:
+            with self._sync_lock:
+                self._sync_in_progress = False
+
+    def _fetch_robot_gallery_list(self):
+        url = f'{self._robot_gallery_base_url()}/list'
+        with url_request.urlopen(url, timeout=self.robot_gallery_timeout_sec) as response:
+            if response.status != 200:
+                raise RuntimeError(f'HTTP status {response.status} for {url}')
+            payload = json.loads(response.read().decode('utf-8'))
+
+        files = payload.get('files', []) if isinstance(payload, dict) else []
+        if not isinstance(files, list):
+            raise RuntimeError('Invalid robot gallery response format')
+
+        safe = []
+        for name in files:
+            if not isinstance(name, str):
+                continue
+            base = os.path.basename(name)
+            if base != name or not base:
+                continue
+            safe.append(base)
+        return safe
+
+    def _download_robot_gallery_file(self, filename):
+        safe_name = os.path.basename(filename)
+        if not safe_name or safe_name != filename:
+            return False
+
+        encoded = url_parse.quote(safe_name)
+        url = f'{self._robot_gallery_base_url()}/files/{encoded}'
+        target = os.path.join(self.gallery_dir, safe_name)
+        tmp_target = f'{target}.part'
+
+        try:
+            with url_request.urlopen(url, timeout=self.robot_gallery_timeout_sec) as response:
+                if response.status != 200:
+                    return False
+                with open(tmp_target, 'wb') as f:
+                    shutil.copyfileobj(response, f)
+            os.replace(tmp_target, target)
+            return True
+        except (url_error.URLError, OSError):
+            try:
+                if os.path.exists(tmp_target):
+                    os.remove(tmp_target)
+            except OSError:
+                pass
+            return False
+
+    def cb_mission_result(self, msg):
+        payload = (msg.data or '').strip()
+        now = time.monotonic()
+        if payload == self._last_mission_result_payload and (now - self._last_mission_result_at) < 3.0:
+            return
+        self._last_mission_result_payload = payload
+        self._last_mission_result_at = now
+        self._schedule_gallery_sync('mission_result')
 
     def configure_capture_source(self):
         """Configure la source de capture ffmpeg à partir de web/configuration.json."""

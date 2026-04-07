@@ -47,6 +47,20 @@ def generate_launch_description():
             cwd=mediamtx_dir,
             output='screen'
         ),
+        ExecuteProcess(
+            cmd=[
+                'python3',
+                '-m',
+                'camera.mission_gallery_http_server',
+                '--host',
+                '0.0.0.0',
+                '--port',
+                '8092',
+                '--gallery-dir',
+                os.path.expanduser('~/mission_gallery'),
+            ],
+            output='screen'
+        ),
         Node(
             package='camera',
             executable='camera_control_node',
