@@ -53,7 +53,7 @@ def generate_launch_description():
             'navigation_pkg.odom_rosbridge_relay',
             '--ros-args',
             '-p',
-            'bridge_host:=100.123.147.56',
+            'bridge_host:=100.92.193.85',
             '-p',
             'bridge_port:=9090',
         ],

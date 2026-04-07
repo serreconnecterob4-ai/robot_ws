@@ -19,6 +19,12 @@ robot_ws/src/gps_package/config/navsat.yaml ---- Lignes 22
 datum: [48.7994, 2.0281, 0.0]
 ````
 
+robot_ws/src/curt_mini/curt_mini/models/curt_mini/worlds/world.sdf ---- Lignes 4 et 5
+````sdf
+      <latitude_deg>48.7994</latitude_deg>
+      <longitude_deg>2.0281</longitude_deg>
+````
+
 ## Réglages vis à vis des cartes .jpg & .pgm
 
 ### Position base gps fixe (pixels) + Résolution
@@ -181,8 +187,10 @@ robot_ws/src/navigation_pkg/launch/global_launch.py ---- Lignes 56
 'bridge_host:=100.123.147.56',
 ````
 
-
-
+robot_ws/src/navigation_pkg/navigation_pkg/odom_rosbridge_relay.py ---- Lignes 146
+````py
+        self.declare_parameter('bridge_host', '100.92.193.85')
+````
 ## Réglages caméra
 
 Récuperez l'ip de la caméra (par défaut et en permanence: 10.42.0.188), veuillez bien vérifier que la caméra est branchée au robot en ethernet, et que le mode de configuration filaire est en "partagée avec d'autres ordinateurs".
