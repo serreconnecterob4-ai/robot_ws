@@ -105,6 +105,8 @@ let _currentlyTakingPhoto = false;
 let _lastOdometryMs = Date.now()-3000;  // initialisé à "il y a longtemps" pour afficher offline au démarrage
 let _odometryOffline = false;
 let _missionFeedbackTrajectoryRestoreTried = false;
+let _lastMissionProgressKey = '';
+let _lastMissionProgressLogAtMs = 0;
 
 
 // Topics mission (remplacement du ActionClient incompatible avec rosbridge ROS2)
@@ -115,11 +117,10 @@ const missionFeedbackSub = new ROSLIB.Topic({ ros, name: '/ui/mission_feedback',
 missionFeedbackSub.subscribe(async (msg) => {
     try {
         const fb    = JSON.parse(msg.data);
-        console.info('[MISSION][FEEDBACK] received', {
-            hasTrajectoryInMemory: !!currentTrajectoryData,
-            restoreAlreadyTried: _missionFeedbackTrajectoryRestoreTried,
-            waypointIndex: fb.current_waypoint_index
-        });
+        // Ignore les feedbacks résiduels si aucune mission n'est active côté IHM.
+        if (!missionActive && !missionPaused) {
+            return;
+        }
 
         // Si aucun trajet n'est chargé, tenter une seule restauration depuis le cookie.
         if (!currentTrajectoryData && !_missionFeedbackTrajectoryRestoreTried) {
@@ -188,7 +189,14 @@ missionFeedbackSub.subscribe(async (msg) => {
 
         // console.log('[MISSION] feedback reçu :', fb);
         if (!isPaused) {
-            logEvent(`Mission en cours – waypoint ${idx}/${total}`, 'info');
+            const nowMs = Date.now();
+            const progressKey = `${idx}/${total}`;
+            // Réduit fortement le bruit: log uniquement si waypoint change ou toutes les 10s.
+            if (progressKey !== _lastMissionProgressKey || (nowMs - _lastMissionProgressLogAtMs) > 10000) {
+                _lastMissionProgressKey = progressKey;
+                _lastMissionProgressLogAtMs = nowMs;
+                logEvent(`Mission en cours – waypoint ${idx}/${total}`, 'info');
+            }
         }
         if (isTakingPhoto) {
             logEvent(`📸 Prise de photo au waypoint ${idx}`, 'info');
@@ -228,8 +236,12 @@ missionResultSub.subscribe((msg) => {
     try {
         const nowMs = Date.now();
         const payload = (typeof msg.data === 'string') ? msg.data : JSON.stringify(msg.data);
+        // Si la mission est déjà inactive, ignorer tout résultat identique répété.
+        if (!missionActive && payload === _lastMissionResultPayload) {
+            return;
+        }
         // Ignore les republis ROS identiques très rapprochées pour éviter le spam UI/log.
-        if (payload === _lastMissionResultPayload && (nowMs - _lastMissionResultAtMs) < 5000) {
+        if (payload === _lastMissionResultPayload && (nowMs - _lastMissionResultAtMs) < 10000) {
             return;
         }
         _lastMissionResultPayload = payload;

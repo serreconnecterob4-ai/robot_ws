@@ -1,10 +1,18 @@
+const MEDIA_DEBUG = false;
+
+function mediaDebug(...args) {
+    if (MEDIA_DEBUG) {
+        console.log(...args);
+    }
+}
+
 function toggleMission() {
-    console.log('[MISSION] toggleMission() appelé, missionActive avant =', missionActive);
+    mediaDebug('[MISSION] toggleMission() appelé, missionActive avant =', missionActive);
     const btn = document.getElementById('btnMission');
 
 
     if (missionActive==false) {
-        console.log('[MISSION] currentTrajectoryData =', currentTrajectoryData);
+        mediaDebug('[MISSION] currentTrajectoryData =', currentTrajectoryData);
         // Vérifier qu'un trajet est chargé avec des points
         if (!currentTrajectoryData || !currentTrajectoryData.trajectory || currentTrajectoryData.trajectory.length === 0) {
             const info = document.getElementById('trajInfo');
@@ -30,7 +38,7 @@ function toggleMission() {
         const waypoints_y = trajectory.map(p => p.gps_y || 0);
         const take_photo = trajectory.map(p => (p.photography === 'yes' || p.type === 'photography'));
 
-        console.log('[MISSION] Waypoints GPS extraits :', waypoints_x, waypoints_y, take_photo);
+        mediaDebug('[MISSION] Waypoints GPS extraits :', waypoints_x, waypoints_y, take_photo);
 
         // --- Logs UI : coordonnées pixels envoyées au serveur ---
         logEvent(`📡 Envoi mission : ${trajectory.length} waypoint(s) (coordonnées pixels)`, 'info');
@@ -55,7 +63,7 @@ function toggleMission() {
         if (typeof setEmergencyButtonPausedState === 'function') {
             setEmergencyButtonPausedState(false);
         }
-        console.log('[MISSION] missionActive après toggle =', missionActive);
+        mediaDebug('[MISSION] missionActive après toggle =', missionActive);
 
 
         btn.innerText = '🛑 Arrêter la mission';
@@ -88,8 +96,8 @@ function toggleMission() {
         if (typeof setEmergencyButtonPausedState === 'function') {
             setEmergencyButtonPausedState(false);
         }
-        console.log('[MISSION] missionActive après toggle =', missionActive);
-        console.log('[MISSION] Annulation de la mission');
+        mediaDebug('[MISSION] missionActive après toggle =', missionActive);
+        mediaDebug('[MISSION] Annulation de la mission');
         currentWaypointIndex = -1;
         btn.innerText = '🚀 Lancer la mission';
         btn.className = 'mission-btn start';
@@ -118,19 +126,18 @@ let mediaRecorder = null;
 let recordedChunks = [];
 
 async function uploadBlob(blob, endpoint, filename) {
-    console.log('[UPLOAD] Début upload:', { endpoint, filename, blobSize: blob.size, blobType: blob.type });
-    logEvent(`[UPLOAD] Envoi de ${filename} vers ${endpoint} (${(blob.size/1024).toFixed(2)}KB)`, 'info');
+    mediaDebug('[UPLOAD] Début upload:', { endpoint, filename, blobSize: blob.size, blobType: blob.type });
     
     const params = new URLSearchParams({ filename });
     const url = `${endpoint}?${params.toString()}`;
-    console.log('[UPLOAD] URL finale:', url);
+    mediaDebug('[UPLOAD] URL finale:', url);
     
     try {
         const res = await fetch(url, {
             method: 'POST',
             body: blob
         });
-        console.log('[UPLOAD] Réponse reçue:', { status: res.status, ok: res.ok });
+        mediaDebug('[UPLOAD] Réponse reçue:', { status: res.status, ok: res.ok });
         
         if (!res.ok) {
             const errorMsg = `Upload failed: ${res.status} ${res.statusText}`;
@@ -139,7 +146,7 @@ async function uploadBlob(blob, endpoint, filename) {
             throw new Error(errorMsg);
         }
         
-        console.log('[UPLOAD] ✅ Succès pour:', filename);
+        mediaDebug('[UPLOAD] ✅ Succès pour:', filename);
         logEvent(`[UPLOAD] ✅ ${filename} envoyé avec succès`, 'success');
     } catch (e) {
         console.error('[UPLOAD] Exception:', e.message);
@@ -149,10 +156,9 @@ async function uploadBlob(blob, endpoint, filename) {
 }
 
 function takePhoto() {
-    console.log('[PHOTO] takePhoto() appelée');
-    logEvent('[PHOTO] Demande de photo', 'info');
+    mediaDebug('[PHOTO] takePhoto() appelée');
     
-    console.log('[PHOTO] État de la vidéo:', {
+    mediaDebug('[PHOTO] État de la vidéo:', {
         videoElement: !!videoElement,
         srcObject: !!videoElement?.srcObject,
         videoWidth: videoElement?.videoWidth,
@@ -160,29 +166,27 @@ function takePhoto() {
     });
     
     if (videoElement && videoElement.srcObject && videoElement.videoWidth) {
-        console.log('[PHOTO] Mode WebRTC: Capture en cours...');
-        logEvent('[PHOTO] 🎥 Mode WebRTC - Capture du frame', 'info');
+        mediaDebug('[PHOTO] Mode WebRTC: Capture en cours...');
         
         const canvas = document.createElement('canvas');
         canvas.width = videoElement.videoWidth;
         canvas.height = videoElement.videoHeight;
-        console.log('[PHOTO] Canvas créé:', { width: canvas.width, height: canvas.height });
+        mediaDebug('[PHOTO] Canvas créé:', { width: canvas.width, height: canvas.height });
         
         const ctx = canvas.getContext('2d');
         ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-        console.log('[PHOTO] Image copiée sur canvas');
+        mediaDebug('[PHOTO] Image copiée sur canvas');
         
         canvas.toBlob(async (blob) => {
-            console.log('[PHOTO] Blob généré:', { size: blob?.size, type: blob?.type });
+            mediaDebug('[PHOTO] Blob généré:', { size: blob?.size, type: blob?.type });
             
             if (blob) {
                 const filename = `photo_${Date.now()}.jpg`;
-                console.log('[PHOTO] Filename généré:', filename);
-                logEvent(`[PHOTO] 📸 Blob créé (${(blob.size/1024).toFixed(2)}KB), upload en cours...`, 'info');
+                mediaDebug('[PHOTO] Filename généré:', filename);
                 
                 try {
                     await uploadBlob(blob, '/upload_photo', filename);
-                    console.log('[PHOTO] ✅ Upload réussi');
+                    mediaDebug('[PHOTO] ✅ Upload réussi');
                     logEvent('✅ Photo prise (WebRTC)', 'success');
                 } catch (e) {
                     console.error('[PHOTO] ❌ Erreur upload:', e);
@@ -196,72 +200,66 @@ function takePhoto() {
         return;
     }
 
-    console.log('[PHOTO] Mode ROS2: WebRTC non disponible, appel service ROS2');
-    logEvent('[PHOTO] 📱 Mode ROS2 - Appel au service /camera/take_photo', 'info');
+    mediaDebug('[PHOTO] Mode ROS2: WebRTC non disponible, appel service ROS2');
     
     photoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
-        console.log('[PHOTO] Réponse ROS2:', res);
+        mediaDebug('[PHOTO] Réponse ROS2:', res);
         logEvent(res.success ? '✅ Photo prise (ROS2)' : '❌ Erreur prise photo (ROS2)', res.success ? 'success' : 'error');
         alert(res.success ? "📸 Prise !" : "Erreur");
     });
 }
 
 function toggleVideo() {
-    console.log('[VIDEO] toggleVideo() appelée, isRecording:', isRecording);
-    logEvent(`[VIDEO] Basculement enregistrement (état: ${isRecording ? 'ON→OFF' : 'OFF→ON'})`, 'info');
+    mediaDebug('[VIDEO] toggleVideo() appelée, isRecording:', isRecording);
     
     let btn = document.getElementById('btnRecord');
     
-    console.log('[VIDEO] Vérification disponibilité:', {
+    mediaDebug('[VIDEO] Vérification disponibilité:', {
         videoElement: !!videoElement,
         srcObject: !!videoElement?.srcObject,
         MediaRecorder: !!window.MediaRecorder
     });
 
     if (videoElement && videoElement.srcObject && window.MediaRecorder) {
-        console.log('[VIDEO] Mode WebRTC disponible');
+        mediaDebug('[VIDEO] Mode WebRTC disponible');
         
         if (!isRecording) {
-            console.log('[VIDEO] 🔴 DÉMARRAGE enregistrement WebRTC');
+            mediaDebug('[VIDEO] 🔴 DÉMARRAGE enregistrement WebRTC');
             logEvent('[VIDEO] 🔴 DÉMARRAGE enregistrement (WebRTC)', 'success');
             
             recordedChunks = [];
-            console.log('[VIDEO] recordedChunks réinitialisé');
+            mediaDebug('[VIDEO] recordedChunks réinitialisé');
             
             try {
                 mediaRecorder = new MediaRecorder(videoElement.srcObject, { mimeType: 'video/webm;codecs=vp8' });
-                console.log('[VIDEO] MediaRecorder créé avec état:', mediaRecorder.state);
-                logEvent('[VIDEO] 📹 MediaRecorder initialisé', 'info');
+                mediaDebug('[VIDEO] MediaRecorder créé avec état:', mediaRecorder.state);
                 
                 mediaRecorder.ondataavailable = (event) => {
-                    console.log('[VIDEO] ondataavailable:', { size: event.data.size });
+                    mediaDebug('[VIDEO] ondataavailable:', { size: event.data.size });
                     if (event.data && event.data.size > 0) {
                         recordedChunks.push(event.data);
-                        console.log('[VIDEO] Chunk ajouté. Total chunks:', recordedChunks.length);
+                        mediaDebug('[VIDEO] Chunk ajouté. Total chunks:', recordedChunks.length);
                     }
                 };
                 
                 mediaRecorder.onstop = async () => {
-                    console.log('[VIDEO] onstop appelé. Total chunks:', recordedChunks.length);
-                    logEvent(`[VIDEO] 🛑 ARRÊT (${recordedChunks.length} chunks enregistrés)`, 'info');
+                    mediaDebug('[VIDEO] onstop appelé. Total chunks:', recordedChunks.length);
                     
                     const totalSize = recordedChunks.reduce((sum, chunk) => sum + chunk.size, 0);
-                    console.log('[VIDEO] Taille totale:', { bytes: totalSize, MB: (totalSize/1024/1024).toFixed(2) });
-                    logEvent(`[VIDEO] Vidéo: ${recordedChunks.length} chunks, ${(totalSize/1024/1024).toFixed(2)}MB`, 'info');
+                    mediaDebug('[VIDEO] Taille totale:', { bytes: totalSize, MB: (totalSize/1024/1024).toFixed(2) });
                     
                     const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                    console.log('[VIDEO] Blob créé:', { size: blob.size, type: blob.type });
+                    mediaDebug('[VIDEO] Blob créé:', { size: blob.size, type: blob.type });
                     
                     recordedChunks = [];
-                    console.log('[VIDEO] recordedChunks vidé');
+                    mediaDebug('[VIDEO] recordedChunks vidé');
                     
                     const filename = `video_${Date.now()}.webm`;
-                    console.log('[VIDEO] Filename:', filename);
-                    logEvent(`[VIDEO] 📤 Upload en cours: ${filename} (${(blob.size/1024/1024).toFixed(2)}MB)`, 'info');
+                    mediaDebug('[VIDEO] Filename:', filename);
                     
                     try {
                         await uploadBlob(blob, '/upload_video', filename);
-                        console.log('[VIDEO] ✅ Upload vidéo réussi');
+                        mediaDebug('[VIDEO] ✅ Upload vidéo réussi');
                         logEvent('✅ Vidéo sauvegardée (WebRTC)', 'success');
                     } catch (e) {
                         console.error('[VIDEO] ❌ Erreur upload:', e);
@@ -275,7 +273,7 @@ function toggleVideo() {
                 };
                 
                 mediaRecorder.start();
-                console.log('[VIDEO] MediaRecorder.start() appelé, état:', mediaRecorder.state);
+                mediaDebug('[VIDEO] MediaRecorder.start() appelé, état:', mediaRecorder.state);
             } catch (e) {
                 console.error('[VIDEO] Erreur création MediaRecorder:', e);
                 logEvent(`❌ Erreur MediaRecorder: ${e.message}`, 'error');
@@ -285,39 +283,35 @@ function toggleVideo() {
             isRecording = true;
             btn.innerText = "⏹ STOP";
             btn.style.backgroundColor = "black";
-            console.log('[VIDEO] UI mise à jour');
+            mediaDebug('[VIDEO] UI mise à jour');
             logEvent('[VIDEO] Enregistrement vidéo démarré (WebRTC)', 'success');
         } else {
-            console.log('[VIDEO] 🛑 ARRÊT enregistrement WebRTC');
-            logEvent('[VIDEO] 🛑 ARRÊT enregistrement demandé', 'info');
+            mediaDebug('[VIDEO] 🛑 ARRÊT enregistrement WebRTC');
             
-            console.log('[VIDEO] Avant stop - état:', mediaRecorder?.state);
+            mediaDebug('[VIDEO] Avant stop - état:', mediaRecorder?.state);
             mediaRecorder.stop();
-            console.log('[VIDEO] stop() appelé');
+            mediaDebug('[VIDEO] stop() appelé');
             
             isRecording = false;
             btn.innerText = "🔴 REC";
             btn.style.backgroundColor = "#e74c3c";
-            console.log('[VIDEO] UI mise à jour, en attente de onstop...');
-            logEvent('[VIDEO] Traitement de la vidéo...', 'info');
+            mediaDebug('[VIDEO] UI mise à jour, en attente de onstop...');
         }
         return;
     }
 
-    console.log('[VIDEO] Mode WebRTC NON disponible, utilisation ROS2');
-    logEvent('[VIDEO] Mode ROS2 (WebRTC indisponible)', 'info');
+    mediaDebug('[VIDEO] Mode WebRTC NON disponible, utilisation ROS2');
 
     if (!isRecording) {
-        console.log('[VIDEO] ROS2: Démarrage enregistrement');
-        logEvent('[VIDEO] 🔴 ROS2: Démarrage enregistrement', 'info');
+        mediaDebug('[VIDEO] ROS2: Démarrage enregistrement');
         
         startVideoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
-            console.log('[VIDEO] ROS2 startVideo réponse:', res);
+            mediaDebug('[VIDEO] ROS2 startVideo réponse:', res);
             if (res.success) {
                 isRecording = true;
                 btn.innerText = "⏹ STOP";
                 btn.style.backgroundColor = "black";
-                console.log('[VIDEO] ROS2: Enregistrement démarré');
+                mediaDebug('[VIDEO] ROS2: Enregistrement démarré');
                 logEvent('✅ Enregistrement vidéo démarré (ROS2)', 'success');
             } else {
                 console.error('[VIDEO] ROS2: Erreur démarrage');
@@ -325,19 +319,18 @@ function toggleVideo() {
             }
         });
     } else {
-        console.log('[VIDEO] ROS2: Arrêt enregistrement');
-        logEvent('[VIDEO] 🛑 ROS2: Arrêt enregistrement', 'info');
+        mediaDebug('[VIDEO] ROS2: Arrêt enregistrement');
         
         // Mettre à jour l'UI IMMÉDIATEMENT (sans attendre la réponse du service)
         isRecording = false;
         btn.innerText = "🔴 REC";
         btn.style.backgroundColor = "#e74c3c";
-        console.log('[VIDEO] UI mise à jour immédiatement');
+        mediaDebug('[VIDEO] UI mise à jour immédiatement');
         
         stopVideoClient.callService(new ROSLIB.ServiceRequest(), (res) => {
-            console.log('[VIDEO] ROS2 stopVideo réponse:', res);
+            mediaDebug('[VIDEO] ROS2 stopVideo réponse:', res);
             if (res.success) {
-                console.log('[VIDEO] ROS2: Enregistrement arrêté');
+                mediaDebug('[VIDEO] ROS2: Enregistrement arrêté');
                 logEvent('✅ Enregistrement vidéo arrêté (ROS2)', 'success');
             } else {
                 console.error('[VIDEO] ROS2: Erreur arrêt');
@@ -471,7 +464,7 @@ function updateGallery(files) {
 
 // Ancienne logique de croix rouge désactivée
 function handleMapClick(event) {
-    console.log("Clic sur carte (fonctionnalité croix désactivée)");
+    mediaDebug("Clic sur carte (fonctionnalité croix désactivée)");
     logEvent('Clic sur la carte', 'info');
 }
 
