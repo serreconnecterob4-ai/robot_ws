@@ -94,7 +94,7 @@ class WebBackend(Node):
         self.declare_parameter('robot_gallery_sync_enabled', True)
         self.declare_parameter('robot_gallery_host', '100.113.93.106')
         self.declare_parameter('robot_gallery_port', 8092)
-        self.declare_parameter('robot_gallery_sync_period_sec', 0.0)
+        self.declare_parameter('robot_gallery_sync_period_sec', 10.0)
         self.declare_parameter('robot_gallery_timeout_sec', 3.0)
 
         self.robot_gallery_sync_enabled = bool(self.get_parameter('robot_gallery_sync_enabled').value)
@@ -174,6 +174,10 @@ class WebBackend(Node):
         self.srv_start_vid = self.create_service(Trigger, '/camera/start_video', self.cb_start_video)
         self.srv_stop_vid = self.create_service(Trigger, '/camera/stop_video', self.cb_stop_video)
 
+        # Subscribers
+        self.create_subscription(Point, '/robot/cmd_vel_buttons', self.cb_cmd_vel, 10)
+        self.create_subscription(Point, '/camera/ptz', self.cb_ptz, 10)
+        
         # Publishers pour le contrôle du robot
         self.cmd_vel_pub = self.create_publisher(Point, '/robot/cmd_vel_buttons', 10)
         
@@ -201,9 +205,8 @@ class WebBackend(Node):
         # Timer pour publier la liste des trajectoires périodiquement
         self.create_timer(2.0, self.publish_trajectory_list)
 
-        # Synchronisation périodique robot -> client (fichiers galerie), optionnelle.
-        if self.robot_gallery_sync_period_sec > 0.0:
-            self.create_timer(max(1.0, self.robot_gallery_sync_period_sec), self._schedule_periodic_gallery_sync)
+        # Synchronisation périodique robot -> client (fichiers galerie)
+        self.create_timer(max(1.0, self.robot_gallery_sync_period_sec), self._schedule_periodic_gallery_sync)
 
         self.httpd = None
         self.server_thread = None
@@ -376,6 +379,14 @@ class WebBackend(Node):
         except OSError as e:
             self.get_logger().error(f"Erreur serveur web: {e}")
             self.publish_log(f"Erreur serveur web: {e}", "error")
+
+    # Callbacks (Juste pour debug ou hardware)
+    def cb_cmd_vel(self, msg):
+        # msg.x = Avant/Arrière, msg.y = Gauche/Droite
+        pass
+
+    def cb_ptz(self, msg):
+        pass
 
     # Callback arrêt d'urgence
     def cb_emergency_stop(self, msg):

@@ -234,12 +234,14 @@ let _lastMissionResultPayload = null;
 let _lastMissionResultAtMs = 0;
 missionResultSub.subscribe((msg) => {
     try {
-        const nowMs = Date.now();
-        const payload = (typeof msg.data === 'string') ? msg.data : JSON.stringify(msg.data);
-        // Si la mission est déjà inactive, ignorer tout résultat identique répété.
-        if (!missionActive && payload === _lastMissionResultPayload) {
+        // Ignore tout resultat si l'IHM n'est pas en mission active/pause.
+        // Cela coupe les spams infinis dus aux republis/echo tardifs.
+        if (!missionActive && !missionPaused) {
             return;
         }
+
+        const nowMs = Date.now();
+        const payload = (typeof msg.data === 'string') ? msg.data : JSON.stringify(msg.data);
         // Ignore les republis ROS identiques très rapprochées pour éviter le spam UI/log.
         if (payload === _lastMissionResultPayload && (nowMs - _lastMissionResultAtMs) < 10000) {
             return;
