@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlparse
 
@@ -34,6 +35,11 @@ class MissionGalleryHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def _log(self, message):
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        client_ip = self.client_address[0] if self.client_address else 'unknown'
+        print(f'[{now}] [mission-gallery] [{client_ip}] {message}')
+
     def _send_json(self, payload, status=200):
         body = json.dumps(payload).encode('utf-8')
         self.send_response(status)
@@ -43,6 +49,8 @@ class MissionGalleryHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _send_file(self, path):
+        filename = os.path.basename(path)
+        self._log(f'requested file="{filename}" path="{path}"')
         try:
             size = os.path.getsize(path)
             with open(path, 'rb') as f:
@@ -56,9 +64,12 @@ class MissionGalleryHandler(BaseHTTPRequestHandler):
                     if not chunk:
                         break
                     self.wfile.write(chunk)
+            self._log(f'sent file="{filename}" bytes={size} status=200')
         except FileNotFoundError:
+            self._log(f'failed file="{filename}" status=404 reason="file not found"')
             self._send_json({'error': 'file not found'}, status=404)
         except Exception as exc:
+            self._log(f'failed file="{filename}" status=500 reason="{exc}"')
             self._send_json({'error': f'cannot read file: {exc}'}, status=500)
 
     def do_GET(self):

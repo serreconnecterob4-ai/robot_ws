@@ -191,6 +191,7 @@ robot_ws/src/navigation_pkg/navigation_pkg/odom_rosbridge_relay.py ---- Lignes 1
 ````py
         self.declare_parameter('bridge_host', '100.92.193.85')
 ````
+
 ## Réglages caméra
 
 Récuperez l'ip de la caméra (par défaut et en permanence: 10.42.0.188), veuillez bien vérifier que la caméra est branchée au robot en ethernet, et que le mode de configuration filaire est en "partagée avec d'autres ordinateurs".
