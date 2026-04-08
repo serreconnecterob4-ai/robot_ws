@@ -338,10 +338,12 @@ function initWebRTC() {
 }
 
 // WebSocket 1: Se connecte au serveur local (Zehno) pour galerie/trajets/logs
-const ros = new ROSLIB.Ros({ url: `ws://${window.location.hostname}:9090` });
+const rosUrl = `ws://${window.location.hostname}:9090`;
+const ros = new ROSLIB.Ros({ url: rosUrl });
 
 // WebSocket 2: Se connecte directement à la Raspberry pour /cmd_vel (commandes robot)
-const rosRobot = new ROSLIB.Ros({ url: `ws://${robotIp}:9090` });
+const rosRobotUrl = `ws://${robotIp}:9090`;
+const rosRobot = new ROSLIB.Ros({ url: rosRobotUrl });
 
 let rosServerConnected = false;
 let rosRobotConnected = false;
@@ -376,6 +378,28 @@ rosRobot.on('close', () => {
     rosRobotConnected = false;
     console.warn('ROS Robot: déconnecté');
 });
+
+function reconnectRos(rosClient, url, label) {
+    try {
+        rosClient.connect(url);
+        console.info(`${label}: tentative de reconnexion`);
+    } catch (err) {
+        console.warn(`${label}: reconnexion impossible`, err);
+    }
+}
+
+function reconnectRosBridges() {
+    if (!rosServerConnected) {
+        reconnectRos(ros, rosUrl, 'ROS Serveur');
+    }
+    if (!rosRobotConnected) {
+        reconnectRos(rosRobot, rosRobotUrl, 'ROS Robot');
+    }
+}
+
+window.addEventListener('online', reconnectRosBridges);
+window.addEventListener('focus', reconnectRosBridges);
+setInterval(reconnectRosBridges, 3000);
 
 function createRobotPublisher(name, messageType, options = {}) {
     // Règle de routage explicite pour éviter les doublons entre rosbridge A (server)

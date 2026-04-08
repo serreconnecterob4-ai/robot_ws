@@ -90,9 +90,11 @@ function sendCmdFromKeyboardState() {
 }
 
 // --- PTZ (OKLM) ---
-function sendPtz(direction) {
+let ptzHoldInterval = null;
+
+function publishPtzPoint(direction) {
     // Utilisation de Point (x, y)
-    let point = new ROSLIB.Message({
+    const point = new ROSLIB.Message({
         x: 0.0,
         y: 0.0,
         z: 0.0
@@ -102,10 +104,32 @@ function sendPtz(direction) {
     if (direction === 'down')  point.x = -1.0;
     if (direction === 'right') point.y = 1.0;
     if (direction === 'left')  point.y = -1.0;
-    console.log('sendPtz() appelé avec direction:', direction, '-> point:', point);
-    logEvent(`Caméra PTZ: ${direction}`, 'info');
+
     ptzPub.publish(point);
-    
+}
+
+function sendPtz(direction) {
+    console.log('sendPtz() appelé avec direction:', direction);
+    logEvent(`Caméra PTZ: ${direction}`, 'info');
+
+    // Stop: couper la répétition puis envoyer l'arrêt plusieurs fois
+    if (direction === 'stop') {
+        if (ptzHoldInterval) {
+            clearInterval(ptzHoldInterval);
+            ptzHoldInterval = null;
+        }
+        publishPtzPoint('stop');
+        setTimeout(() => publishPtzPoint('stop'), 70);
+        setTimeout(() => publishPtzPoint('stop'), 150);
+        return;
+    }
+
+    // Direction maintenue: publier tout de suite puis en continu
+    publishPtzPoint(direction);
+    if (ptzHoldInterval) {
+        clearInterval(ptzHoldInterval);
+    }
+    ptzHoldInterval = setInterval(() => publishPtzPoint(direction), 120);
 }
 
 // --- CLAVIER ---
