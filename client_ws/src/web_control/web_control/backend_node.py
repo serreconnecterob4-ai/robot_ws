@@ -78,7 +78,12 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
             return
 
         if QuietHandler.gallery_mgr:
-            QuietHandler.gallery_mgr.publish_gallery()
+            media_type = "vidéo" if parsed.path == "/upload_video" else "photo"
+            file_size_kb = len(data) / 1024
+            QuietHandler.gallery_mgr.node.get_logger().info(
+                f"[UPLOAD] ✓ {media_type} uploadée localement: {filename} ({file_size_kb:.1f} KB)"
+            )
+            QuietHandler.gallery_mgr.publish_gallery(reason='local_upload', log_update=True)
 
         self.send_response(200)
         self.end_headers()
@@ -92,7 +97,7 @@ class WebBackend(Node):
         super().__init__('web_backend')
 
         self.declare_parameter('robot_gallery_sync_enabled', True)
-        self.declare_parameter('robot_gallery_host', '100.113.93.106')
+        self.declare_parameter('robot_gallery_host', '100.106.79.105')
         self.declare_parameter('robot_gallery_port', 8092)
         self.declare_parameter('robot_gallery_sync_period_sec', 10.0)
         self.declare_parameter('robot_gallery_timeout_sec', 3.0)
@@ -239,34 +244,56 @@ class WebBackend(Node):
 
     def _sync_gallery_worker(self, reason='manual'):
         try:
+            self.get_logger().info(f"[SYNC] Démarrage synchronisation galerie ({reason})")
             remote_files = self._fetch_robot_gallery_list()
+            self.get_logger().info(f"[SYNC] Récupéré {len(remote_files)} fichier(s) du robot")
+            
             if not self._robot_gallery_online:
                 self._robot_gallery_online = True
                 self.get_logger().info(
-                    f'Robot gallery online ({self._robot_gallery_base_url()})'
+                    f'[ROBOT] Robot gallery online ({self._robot_gallery_base_url()})'
                 )
 
             local_files = set(
                 f for f in os.listdir(self.gallery_dir)
                 if os.path.isfile(os.path.join(self.gallery_dir, f))
             )
+            self.get_logger().info(f"[SYNC] Fichiers locaux: {len(local_files)}")
+            
             missing = [name for name in remote_files if name not in local_files]
+            if missing:
+                self.get_logger().info(f"[SYNC] ⚠️ Fichiers manquants ({len(missing)}): {missing}")
+            else:
+                self.get_logger().info(f"[SYNC] ✓ Tous les fichiers du robot sont présents localement")
 
             downloaded = 0
+            failed = []
             for name in missing:
+                self.get_logger().info(f"[SYNC] Téléchargement de {name}...")
                 if self._download_robot_gallery_file(name):
                     downloaded += 1
+                    self.get_logger().info(f"[SYNC] ✓ {name} téléchargé avec succès")
+                else:
+                    failed.append(name)
+                    self.get_logger().warning(f"[SYNC] ✗ Erreur téléchargement de {name}")
 
-            if downloaded > 0:
-                self.get_logger().info(
-                    f'Sync galerie ({reason}): {downloaded} nouveau(x) fichier(s) telecharge(s).'
-                )
-                self.gallery_mgr.publish_gallery()
+            # Résumé final
+            if len(missing) > 0:
+                summary = f"[SYNC] Synchronisation ({reason}): {downloaded}/{len(missing)} fichier(s) téléchargé(s)"
+                if failed:
+                    summary += f" - Échecs: {failed}"
+                self.get_logger().info(summary)
+                
+                if downloaded > 0:
+                    self.gallery_mgr.publish_gallery(reason=f'sync_{reason}', log_update=True)
+                    self.get_logger().info(f"[SYNC] Galerie mise à jour (ajout de {downloaded} nouveau/aux fichier(s))")
+            else:
+                self.get_logger().info(f"[SYNC] Synchronisation ({reason}): aucun nouveau fichier")
 
         except Exception as e:
             if self._robot_gallery_online:
                 self.get_logger().warning(
-                    f'Robot gallery offline ({self._robot_gallery_base_url()}): {e}'
+                    f'[ROBOT] Robot gallery offline ({self._robot_gallery_base_url()}): {e}'
                 )
             self._robot_gallery_online = False
         finally:
@@ -307,12 +334,16 @@ class WebBackend(Node):
         try:
             with url_request.urlopen(url, timeout=self.robot_gallery_timeout_sec) as response:
                 if response.status != 200:
+                    self.get_logger().error(f"[DOWNLOAD] HTTP {response.status} pour {filename}")
                     return False
                 with open(tmp_target, 'wb') as f:
                     shutil.copyfileobj(response, f)
+            file_size = os.path.getsize(tmp_target)
             os.replace(tmp_target, target)
+            self.get_logger().debug(f"[DOWNLOAD] {filename} ({file_size} bytes) sauvegardé localement")
             return True
-        except (url_error.URLError, OSError):
+        except (url_error.URLError, OSError) as e:
+            self.get_logger().error(f"[DOWNLOAD] Erreur pour {filename}: {e}")
             try:
                 if os.path.exists(tmp_target):
                     os.remove(tmp_target)
@@ -424,12 +455,12 @@ class WebBackend(Node):
         if os.path.exists(path):
             try:
                 os.remove(path)
-                self.get_logger().info(f"Fichier supprimé: {filename}")
+                self.get_logger().info(f"[DELETE] ✓ Fichier supprimé: {filename}")
                 self.publish_log(f"Fichier supprimé: {filename}", "success")
                 # Force la mise à jour de la galerie pour le client
-                self.gallery_mgr.publish_gallery()
+                self.gallery_mgr.publish_gallery(reason='file_deleted', log_update=True)
             except Exception as e:
-                self.get_logger().error(f"Erreur suppression: {e}")
+                self.get_logger().error(f"[DELETE] ✗ Erreur suppression: {e}")
                 self.publish_log(f"Erreur suppression: {e}", "error")
     
     # Sauvegarde de trajectoire
@@ -512,9 +543,11 @@ class WebBackend(Node):
         if success:
             filename = os.path.basename(path)
             response.message = f"Photo enregistrée : {filename}"
-            self.gallery_mgr.publish_gallery() # Rafraîchir l'IHM
+            self.get_logger().info(f"[PHOTO] ✓ Photo capturée: {filename}")
+            self.gallery_mgr.publish_gallery(reason='local_photo', log_update=True) # Rafraîchir l'IHM
         else:
             response.message = f"Erreur capture : {path}"
+            self.get_logger().error(f"[PHOTO] ✗ Erreur capture: {path}")
         
         self.publish_log(response.message, "success" if success else "error")
         return response
@@ -534,8 +567,12 @@ class WebBackend(Node):
         response.success = success
         response.message = msg
         if success:
+            self.get_logger().info(f"[VIDEO] ✓ Vidéo arrêtée et sauvegardée")
             self.publish_log(f"Vidéo sauvegardée: {msg}", "success")
+            # Mettre à jour la galerie pour afficher la nouvelle vidéo
+            self.gallery_mgr.publish_gallery(reason='local_video', log_update=True)
         else:
+            self.get_logger().warning(f"[VIDEO] ✗ Erreur arrêt vidéo: {msg}")
             self.publish_log(f"Erreur arrêt vidéo: {msg}", "error")
         return response
     def cb_ptz_relay(self, msg):
