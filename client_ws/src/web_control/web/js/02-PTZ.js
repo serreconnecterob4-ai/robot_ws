@@ -233,6 +233,72 @@ function updateArmSpeed(val) {
     logEvent(`Vitesse bras: ${val}%`, 'info');
 }
 
+// Table d'etalonnage experimentale: correspondance pourcentage -> hauteur (cm).
+const ARM_HEIGHT_LUT = [
+    { percent: 0, cm: 17.00 },
+    { percent: 5, cm: 20.00 },
+    { percent: 10, cm: 28.00 },
+    { percent: 15, cm: 35.50 },
+    { percent: 20, cm: 40.75 },
+    { percent: 25, cm: 45.75 },
+    { percent: 30, cm: 49.75 },
+    { percent: 35, cm: 54.50 },
+    { percent: 40, cm: 58.50 },
+    { percent: 45, cm: 62.00 },
+    { percent: 50, cm: 64.75 },
+    { percent: 55, cm: 68.25 },
+    { percent: 60, cm: 71.00 },
+    { percent: 65, cm: 73.50 },
+    { percent: 70, cm: 76.75 },
+    { percent: 75, cm: 78.50 },
+    { percent: 80, cm: 81.25 },
+    { percent: 85, cm: 82.65 },
+    { percent: 90, cm: 84.50 },
+    { percent: 95, cm: 86.40 },
+    { percent: 100, cm: 87.00 }
+];
+
+/**
+ * Convertit une hauteur cible (cm) en commande bras (%)
+ * via interpolation lineaire entre deux points de la LUT.
+ *
+ * Contraintes:
+ * - targetCm < 17  -> 0
+ * - targetCm > 87  -> 100
+ * - Retourne un entier (arrondi)
+ */
+function heightToPercent(targetCm) {
+    const value = Number(targetCm);
+
+    // Securite simple: valeur non numerique -> position basse.
+    if (!Number.isFinite(value)) {
+        return 0;
+    }
+
+    // Edge cases demandes.
+    if (value <= 17.0) {
+        return 0;
+    }
+    if (value >= 87.0) {
+        return 100;
+    }
+
+    // Recherche du segment [point bas, point haut] qui encadre targetCm.
+    for (let i = 1; i < ARM_HEIGHT_LUT.length; i++) {
+        const low = ARM_HEIGHT_LUT[i - 1];
+        const high = ARM_HEIGHT_LUT[i];
+
+        if (value <= high.cm) {
+            const ratio = (value - low.cm) / (high.cm - low.cm);
+            const interpolatedPercent = low.percent + ratio * (high.percent - low.percent);
+            return Math.round(interpolatedPercent);
+        }
+    }
+
+    // Garde-fou (ne devrait jamais arriver avec les bornes ci-dessus).
+    return 100;
+}
+
 function updateArmPos(val) {
     const elem = document.getElementById('armPosVal');
     if (elem) elem.innerText = val + '%';
