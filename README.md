@@ -102,8 +102,6 @@ ros2 pkg list | grep -i robot
 
 ## Notes
 
-> ⚠️ Si le dépôt est **privé**, configurer une clé SSH ou un token GitHub avant de cloner.
-
 > ⚠️ En cas de **sous-modules git**, ajouter `--recurse-submodules` au `git clone`.
 
 > ⚠️ Si `colcon build` échoue, vérifier que ROS2 est sourcé : `echo $ROS_DISTRO` doit afficher `jazzy`.
