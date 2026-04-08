@@ -19,8 +19,8 @@ readTimeout: 5s
 writeTimeout: 5s
 # Size of the queue of outgoing packets.
 # A higher value allows to increase throughput, a lower value allows to save RAM.
-# Reduced to lower buffering/latency.
-writeQueueSize: 64
+# Slightly larger queue to better absorb short network jitter bursts.
+writeQueueSize: 128
 # Maximum size of outgoing UDP packets.
 # This can be decreased to avoid fragmentation on networks with a low UDP MTU.
 udpMaxPayloadSize: 1472
@@ -484,7 +484,7 @@ pathDefaults:
   # Default path settings -> RTSP source (when source is a RTSP or a RTSPS URL)
 
   # Transport protocol used to pull the stream. available values are "automatic", "udp", "multicast", "tcp".
-  rtspTransport: automatic
+  rtspTransport: tcp
   # Support sources that don't provide server ports or use random server ports. This is a security issue
   # and must be used only when interacting with sources that require it.
   rtspAnyPort: no
@@ -700,6 +700,7 @@ paths:
   mystream: 
     source: rtsp://admin:ros2_2025@10.42.0.188:554/h264Preview_01_main
     sourceOnDemand: no
+    rtspTransport: tcp
     
     # Hooks placeholders: run commands when stream is ready/not ready
     runOnReady:

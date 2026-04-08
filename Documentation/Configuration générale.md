@@ -180,6 +180,11 @@ client_ws/src/web_control/web/configuration.yaml
 "host": "100.113.93.106",
 ````
 
+client_ws/src/web_control/web_control/backend_node.py ---- Lignes 100
+````py
+self.declare_parameter('robot_gallery_host', '100.106.79.105')
+````
+
 ### Adresse IP du client
 
 robot_ws/src/navigation_pkg/launch/global_launch.py ---- Lignes 56

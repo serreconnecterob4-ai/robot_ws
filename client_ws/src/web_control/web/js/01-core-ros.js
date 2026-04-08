@@ -9,6 +9,7 @@ let externalStreamUrl = "";
 // Vidéo WebRTC (faible latence)
 const videoElement = document.getElementById('cameraFeed');
 const webrtcStatus = document.getElementById('webrtcStatus');
+let externalStreamIframe = null;
 
 let config = null;
 
@@ -79,6 +80,7 @@ function initExternalStream() {
     iframe.style.border = '0';
     iframe.allow = 'autoplay; fullscreen';
     container.replaceChild(iframe, videoElement);
+    externalStreamIframe = iframe;
     if (webrtcStatus) {
         if (location.protocol === 'https:' && externalStreamUrl.startsWith('http://')) {
             webrtcStatus.textContent = 'Flux externe (HTTP bloqué en HTTPS)';
@@ -87,6 +89,42 @@ function initExternalStream() {
         }
     }
 }
+
+function cleanupExternalStream(reason = 'manual') {
+    if (!externalStreamIframe) {
+        return;
+    }
+
+    const container = externalStreamIframe.parentElement;
+    // Force the embedded player to disconnect from MediaMTX.
+    externalStreamIframe.src = 'about:blank';
+    externalStreamIframe.remove();
+    externalStreamIframe = null;
+
+    if (container && !container.contains(videoElement)) {
+        container.appendChild(videoElement);
+    }
+
+    if (webrtcStatus) {
+        webrtcStatus.textContent = `Flux externe arrêté (${reason})`;
+    }
+}
+
+window.addEventListener('beforeunload', () => cleanupExternalStream('onglet fermé'));
+document.addEventListener('visibilitychange', () => {
+    if (!externalStreamUrl) {
+        return;
+    }
+
+    if (document.hidden) {
+        cleanupExternalStream('onglet masqué');
+        return;
+    }
+
+    if (!externalStreamIframe) {
+        initExternalStream();
+    }
+});
 
 function initWebRTC() {
     // Si flux externe déjà actif, ne pas initialiser WebRTC
