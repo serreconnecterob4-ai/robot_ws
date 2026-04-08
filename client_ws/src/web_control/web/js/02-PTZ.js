@@ -299,12 +299,51 @@ function heightToPercent(targetCm) {
     return 100;
 }
 
+/**
+ * Convertit un pourcentage de commande bras (%) en hauteur (cm)
+ * via interpolation lineaire sur la meme LUT.
+ */
+function percentToHeight(targetPercent) {
+    const value = Number(targetPercent);
+
+    if (!Number.isFinite(value)) {
+        return 17.0;
+    }
+
+    if (value <= 0) {
+        return 17.0;
+    }
+    if (value >= 100) {
+        return 87.0;
+    }
+
+    for (let i = 1; i < ARM_HEIGHT_LUT.length; i++) {
+        const low = ARM_HEIGHT_LUT[i - 1];
+        const high = ARM_HEIGHT_LUT[i];
+
+        if (value <= high.percent) {
+            const ratio = (value - low.percent) / (high.percent - low.percent);
+            const interpolatedCm = low.cm + ratio * (high.cm - low.cm);
+            return Math.round(interpolatedCm * 10) / 10;
+        }
+    }
+
+    return 87.0;
+}
+
 function updateArmPos(val) {
+    const targetCm = Math.max(17.0, Math.min(87.0, Number(val)));
+    const targetPercent = heightToPercent(targetCm);
+
     const elem = document.getElementById('armPosVal');
-    if (elem) elem.innerText = val + '%';
-    localStorage.setItem('armPosition', val);
-    armPosPub.publish(new ROSLIB.Message({ data: parseFloat(val) }));
-    logEvent(`Position bras: ${val}%`, 'info');
+    if (elem) elem.innerText = `${targetCm.toFixed(1)} cm`;
+
+    // Stocke l'unite UI en cm pour restaurer exactement le slider.
+    localStorage.setItem('armPositionCm', String(targetCm));
+
+    // Le topic ROS reste en valeur numerique de pourcentage.
+    armPosPub.publish(new ROSLIB.Message({ data: targetPercent }));
+    logEvent(`Position bras: ${targetCm.toFixed(1)} cm -> ${targetPercent}%`, 'info');
 }
 
 function updateRobotVolume(val) {

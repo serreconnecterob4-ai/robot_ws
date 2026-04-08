@@ -103,11 +103,21 @@ window.addEventListener('DOMContentLoaded', () => {
     const armSpeedVal = document.getElementById('armSpeedVal');
     if (armSpeedVal) armSpeedVal.innerText = savedArmSpeed + '%';
 
-    const savedArmPos = localStorage.getItem('armPosition') || '0';
+    // Priorite a la nouvelle cle en cm; fallback sur ancienne cle en %.
+    const savedArmPosCm = localStorage.getItem('armPositionCm');
+    const savedArmPosLegacyPct = localStorage.getItem('armPosition');
+
+    let restoredArmCm = 17.0;
+    if (savedArmPosCm !== null) {
+        restoredArmCm = Math.max(17.0, Math.min(87.0, Number(savedArmPosCm) || 17.0));
+    } else if (savedArmPosLegacyPct !== null) {
+        restoredArmCm = percentToHeight(Number(savedArmPosLegacyPct));
+    }
+
     const armPosSlider = document.getElementById('armPosSlider');
-    if (armPosSlider) armPosSlider.value = savedArmPos;
+    if (armPosSlider) armPosSlider.value = String(restoredArmCm);
     const armPosVal = document.getElementById('armPosVal');
-    if (armPosVal) armPosVal.innerText = savedArmPos + '%';
+    if (armPosVal) armPosVal.innerText = `${restoredArmCm.toFixed(1)} cm`;
 
     const savedRobotVolume = localStorage.getItem('robotVolume') || '50';
     const robotVolumeSlider = document.getElementById('robotVolumeSlider');
