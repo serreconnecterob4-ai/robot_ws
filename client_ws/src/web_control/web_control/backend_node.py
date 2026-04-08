@@ -36,6 +36,13 @@ class QuietHandler(http.server.SimpleHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def end_headers(self):
+        # Avoid stale UI/config assets that otherwise require hard refresh.
+        self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        self.send_header('Pragma', 'no-cache')
+        self.send_header('Expires', '0')
+        super().end_headers()
+
     def do_POST(self):
         parsed = urlparse(self.path)
         if parsed.path not in ("/upload_photo", "/upload_video"):

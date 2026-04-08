@@ -13,6 +13,14 @@ let externalStreamIframe = null;
 
 let config = null;
 
+function withCacheBuster(url) {
+    if (!url) {
+        return url;
+    }
+    const sep = url.includes('?') ? '&' : '?';
+    return `${url}${sep}t=${Date.now()}`;
+}
+
 async function loadConfig() {
     try {
         const res = await fetch(`../../../../configuration.json?t=${Date.now()}`);        // le ?t évite le cache 🔥
@@ -74,7 +82,7 @@ function initExternalStream() {
     }
 
     const iframe = document.createElement('iframe');
-    iframe.src = externalStreamUrl;
+    iframe.src = withCacheBuster(externalStreamUrl);
     iframe.style.width = '100%';
     iframe.style.height = '100%';
     iframe.style.border = '0';
@@ -122,6 +130,20 @@ document.addEventListener('visibilitychange', () => {
     }
 
     if (!externalStreamIframe) {
+        initExternalStream();
+    }
+});
+
+window.addEventListener('focus', () => {
+    if (externalStreamUrl && !document.hidden) {
+        cleanupExternalStream('focus');
+        initExternalStream();
+    }
+});
+
+window.addEventListener('online', () => {
+    if (externalStreamUrl && !document.hidden) {
+        cleanupExternalStream('réseau revenu');
         initExternalStream();
     }
 });
