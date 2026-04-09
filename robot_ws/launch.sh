@@ -13,3 +13,4 @@ source install/setup.bash
 
 # Lance simulation.xml et filtre les lignes WARN/ERROR en temps réel
 ros2 launch curt_mini simulation.xml 2>&1 | tee >(grep -iE "warn|error" > "$LOG_FILE")
+# ros2 launch curt_mini simulation.xml headless:=false
