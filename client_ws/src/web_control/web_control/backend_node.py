@@ -104,7 +104,8 @@ class WebBackend(Node):
         super().__init__('web_backend')
 
         self.declare_parameter('robot_gallery_sync_enabled', True)
-        self.declare_parameter('robot_gallery_host', '100.106.79.105')
+        self.declare_parameter('robot_gallery_host', 'localhost')
+        # self.declare_parameter('robot_gallery_host', '100.106.79.105')
         self.declare_parameter('robot_gallery_port', 8092)
         self.declare_parameter('robot_gallery_sync_period_sec', 10.0)
         self.declare_parameter('robot_gallery_timeout_sec', 3.0)

@@ -2,7 +2,7 @@
 // 1. CONFIGURATION & CONNEXION
 // =======================================================================
 const serverIp = window.location.hostname;  // IP du serveur web
-const robotIp = "100.106.79.105";          // IP du robot/Raspberry
+const robotIp = "localhost" ;//"100.106.79.105";          // IP du robot/Raspberry
 const videoHost = serverIp === "" ? "100.106.79.105" : serverIp;
 let externalStreamUrl = "";
 
