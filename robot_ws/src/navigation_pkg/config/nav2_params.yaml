@@ -114,8 +114,8 @@ global_costmap:
       resolution: 0.1
       transform_tolerance: 1.0
       initial_transform_timeout: 30.0
-      robot_radius: 0.5           # ← à adapter à la taille réelle
-      footprint_padding: 0.15      # marge de sécurité supplémentaire
+      robot_radius: 0.4           # ← à adapter à la taille réelle
+      footprint_padding: 0.1      # marge de sécurité supplémentaire
       plugins: ["static_layer","inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -123,7 +123,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 1.3
-        cost_scaling_factor: 5.0 # gradient plus pentu + pénalité planner: évite les zones grises
+        cost_scaling_factor: 2.5 # gradient plus pentu + pénalité planner: évite les zones grises
 
 local_costmap:
   local_costmap:
@@ -139,8 +139,8 @@ local_costmap:
       resolution: 0.1
       transform_tolerance: 1.0
       initial_transform_timeout: 30.0
-      robot_radius: 0.5           # ← à adapter à la taille réelle
-      footprint_padding: 0.15      # marge de sécurité supplémentaire
+      robot_radius: 0.4           # ← à adapter à la taille réelle
+      footprint_padding: 0.1      # marge de sécurité supplémentaire
       plugins: ["static_layer","obstacle_layer","inflation_layer"]
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -148,7 +148,7 @@ local_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         inflation_radius: 0.8
-        cost_scaling_factor: 5.5
+        cost_scaling_factor: 3.0
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
