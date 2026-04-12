@@ -85,7 +85,7 @@ class WaypointActionServer(Node):
         super().__init__('waypoint_action_server')
 
 
-        self.declare_parameter('progress_tolerance_m', 1.0) # distance pour considérer un waypoint comme atteint dans le calcul de la progression
+        self.declare_parameter('progress_tolerance_m', 3.0) # distance pour considérer un waypoint comme atteint dans le calcul de la progression
         self.declare_parameter('max_planner_no_path', 6) # nombre de feedback "no valid path found" consécutifs du planner avant de conclure à un trajet interdit et d'arrêter la mission
         self.declare_parameter('pause_resume_idle_cmd_sec', 60.0) # durée d'inactivité sur cmd_vel pendant la pause avant reprise auto de la mission
         self.declare_parameter('pause_resume_max_sec', 300.0) # durée de pause avant reprise auto uniquement si aucun cmd_vel n'a été détecté pendant toute la pause
@@ -314,8 +314,8 @@ class WaypointActionServer(Node):
                 self.get_logger().warn('Mission en pause (attente resume ou cancel)...')
                 while self._is_paused and not goal_handle.is_cancel_requested:
                     now = time.monotonic()
-
-                    if (
+                        # Feedback de pause envoyé régulièrement pour éviter timeout client web
+                    if ( 
                         self._last_pause_feedback_monotonic is None
                         or (now - self._last_pause_feedback_monotonic) >= 0.5
                     ):
