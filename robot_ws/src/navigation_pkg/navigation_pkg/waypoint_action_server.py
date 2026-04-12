@@ -7,7 +7,7 @@ Il accepte une liste de coordonnées (x, y) et une liste de booléens take_photo
 puis délègue la navigation à Nav2 via NavigateThroughPoses.
 
 Comportement clé :
-- Si le client distant coupe la connexion ou demande une annulation, le goal est ANNULÉ
+- Si le client distant demande une annulation, le goal est ANNULÉ
   (cancel_callback renvoie CancelResponse.ACCEPT, l'annulation effective est gérée dans execute_callback).
 - Pour les arrêts photo, c'est le serveur lui-même qui annule/relance Nav2 en interne.
 """
@@ -592,13 +592,23 @@ class WaypointActionServer(Node):
                     )
                     return self._make_result(False, msg)
 
-                escaped = await self._reverse_unstuck_to_goal(goal_handle, 3.0)
+                escaped = await self._reverse_unstuck_to_goal(goal_handle, 2.0)
 
                 if goal_handle.is_cancel_requested:
                     return self._make_result(False, "Mission annulée par l'opérateur")
 
                 if escaped:
                     self._consecutive_nav_failures = 0
+                    prev_start_idx = self._start_idx
+                    # Si le degagement a effectivement fait progresser le robot,
+                    # reprendre directement au waypoint suivant valide.
+                    if self._validated_progress_idx >= prev_start_idx:
+                        self._start_idx = self._validated_progress_idx + 1
+                        self.get_logger().info(
+                            '🛟 Dégagement réussi avec progression: '
+                            f'reprise depuis idx {self._start_idx} '
+                            f'(validé={self._validated_progress_idx}).'
+                        )
                     self.get_logger().info(
                         '🛟 Dégagement réussi, pause courte puis reprise sans marche arrière.'
                     )
