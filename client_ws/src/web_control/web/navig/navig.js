@@ -418,14 +418,58 @@ document.addEventListener('DOMContentLoaded', () => {
             clearTimeout(costmapHideTimer);
             costmapHideTimer = null;
         }
+            let pendingSave = null;
+            let pendingSaveTimeoutId = null;
         if (pointAlertsTimer) {
             clearTimeout(pointAlertsTimer);
             pointAlertsTimer = null;
         }
+
+            function normalizeTrajectoryFilename(name) {
+                if (!name) return '';
+                return name.endsWith('.json') ? name : `${name}.json`;
+            }
+
+            function clearPendingSaveTimeout() {
+                if (pendingSaveTimeoutId) {
+                    clearTimeout(pendingSaveTimeoutId);
+                    pendingSaveTimeoutId = null;
+                }
+            }
+
+            function trackPendingSave(trajName) {
+                const expectedFilename = normalizeTrajectoryFilename(trajName);
+                pendingSave = {
+                    trajName,
+                    expectedFilename,
+                    requestedAtMs: Date.now(),
+                };
+                clearPendingSaveTimeout();
+                pendingSaveTimeoutId = setTimeout(() => {
+                    if (!pendingSave) return;
+                    if (pendingSave.expectedFilename !== expectedFilename) return;
+                    alert(`⚠️ Sauvegarde non confirmée pour "${trajName}" (pas de retour serveur).`);
+                    pendingSave = null;
+                    pendingSaveTimeoutId = null;
+                }, 12000);
+            }
+
+            function confirmPendingSaveFromFiles(files) {
+                if (!pendingSave || !Array.isArray(files) || files.length === 0) return;
+
+                const hasFile = files.includes(pendingSave.expectedFilename);
+                if (!hasFile) return;
+
+                const confirmedName = pendingSave.trajName;
+                clearPendingSaveTimeout();
+                pendingSave = null;
+                alert(`✅ Trajectoire "${confirmedName}" sauvegardée !`);
+            }
         if (mapCostmapOverlay) {
             mapCostmapOverlay.style.display = 'none';
             mapCostmapOverlay.style.opacity = '0';
         }
+                    confirmPendingSaveFromFiles(files);
         clearTrajectoryPointAlerts();
     }
 
@@ -1355,8 +1399,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
         
         saveTrajectoryPub.publish(msg);
-        console.log('Demande de sauvegarde envoyee via ROS');
-        alert(`📨 Demande de sauvegarde envoyee pour "${trajName}". Verification en cours cote serveur.`);
+        trackPendingSave(trajName);
+        console.log('Demande de sauvegarde envoyee via ROS (en attente de confirmation).');
         
         // Vide le champ de saisie.
         if (nameInput) nameInput.value = '';
