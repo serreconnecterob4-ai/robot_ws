@@ -53,15 +53,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const headerResetForbiddenAreasBtn = document.getElementById('header-reset-forbidden-areas');
     const headerEditButtons = document.getElementById('header-edit-buttons');
 
-    // --- ROS Connection ---
+    // --- Connexion ROS ---
     const ros = new ROSLIB.Ros({
-        url: 'ws://localhost:9090' // Adjust if your ROS bridge is elsewhere
+        url: 'ws://localhost:9090' // A adapter si le rosbridge tourne ailleurs.
     });
     ros.on('connection', () => console.log('Connected to websocket server.'));
     ros.on('error', (error) => console.log('Error connecting to websocket server: ', error));
     ros.on('close', () => console.log('Connection to websocket server closed.'));
 
-    // --- ROS Topic ---
+    // --- Topics ROS ---
     const trajectoryTopic = new ROSLIB.Topic({
         ros: ros,
         name: '/web_trajectory',
@@ -110,8 +110,8 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Erreur parsing liste trajectoires:', e);
         }
     });
-    // Sortie : envoie un tableau de coordonnées des points
-    // format : fraction de { x(pxls) / largeur image, fraction de y(pxls) / hauteur image 
+    // Sortie : envoie un tableau de coordonnees des points.
+    // Format attendu : x(px)/largeur_image(px), y(px)/hauteur_image(px).
     // --- State ---
     let trajectoryPoints = [];
     let pointIdCounter = 0;
@@ -127,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let forbiddenAreas = [];
     let tempRectPoint = null;
     
-    // START POINT que l'on a fixé (pixels only)
+    // Point de depart fixe (en px uniquement).
     let startPoint = { x: 0, y: 0, type: 'start' };
     let startMarkerEl = null;
     let robotOrientation = 0;
@@ -494,6 +494,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const forbiddenIdSet = new Set(analysis.forbiddenIds || []);
         const dangerIdSet = new Set(analysis.dangerIds || []);
 
+        // S'il y a au moins un point a risque, on revient sur l'onglet exterieur.
+        if (forbiddenIdSet.size > 0 || dangerIdSet.size > 0) {
+            switchToExteriorTabIfSerreActive();
+        }
+
         if (costmapHideTimer || pointAlertsTimer) {
             stopRiskVisualsNow();
         }
@@ -596,8 +601,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const forbiddenCount = analysis.forbiddenIds.length;
         const dangerCount = analysis.dangerIds.length;
 
-        // Si des points interdits sont detectes en vue serre, revenir tout de suite sur la carte exterieure.
-        if (forbiddenCount > 0) {
+        // Si des points a risque sont detectes en vue serre, revenir sur la carte exterieure.
+        if (forbiddenCount > 0 || dangerCount > 0) {
             switchToExteriorTabIfSerreActive();
         }
 
@@ -647,13 +652,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (robotRipple) robotRipple.setAttribute('r', '28');
     if (robotHeading) robotHeading.setAttribute('points', '0,-30 -10,-14 10,-14');
 
-    // --- Système de coordonnées métriques ---
-    // Pixel d'origine sur l'image (correspond aux coordonnées métriques (0, 0))
+    // --- Systeme de coordonnees metriques ---
+    // Pixel d'origine sur l'image (correspond au point (0 m, 0 m)).
     const originPixel = { x: 160.1, y: 1104.8 };
-    // Échelle : 2.6617 cm/px → m/px
+    // Echelle : 2.6617 cm/px -> m/px.
     const metersPerPixel = 2.6617 / 100;
     const origin_map_size = { width: 9966, height: 2622 }; // taille de l'image map.jpg en pixels
-    // Angle de rotation entre les axes image et le repère monde (degrés)
+    // Angle de rotation entre les axes image et le repere monde (en degres).
     const thetaDegrees = 76.681;
 
     function meters_to_pixels(x, y) {
@@ -795,20 +800,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }, 250);
 
-    // --- Serre (greenhouse) rectangle en coordonnées métriques ---
-    // Si le dernier point placé est dans ce rectangle, on ouvre la vue "Serre intérieur".
-    // TODO: mettre à jour ces bornes métriques pour correspondre à la serre réelle
-    // Serre rectangle in image pixels (fixed)
+    // --- Rectangle de serre ---
+    // Si le dernier point place tombe dans ce rectangle, on ouvre la vue "Serre interieur".
+    // TODO: mettre a jour ces bornes pour coller a la serre reelle.
+    // Rectangle serre en px image (valeurs fixes).
     const serreRectPixels = { x1: 300.0, y1: 362, x2: 647, y2: 739 };
-    // --- Configuration de la serre (repère métrique séparé) ---
-    // TODO: mettre à jour ces valeurs pour correspondre à l'image serre.jpg
-    // Serre runtime state (scale/offset computed dynamically on each layout update)
+    // --- Configuration de la serre (repere separe) ---
+    // TODO: mettre a jour ces valeurs pour correspondre a serre.jpg.
+    // Etat runtime serre (echelle + offsets recalcules a chaque mise en page).
     let serreImgDisplayScale = 1;
     let serreImgOffsetX = 0;
     let serreImgOffsetY = 0;
     
-    // --- Helper: attach metric coords to a point using user-provided pixel_to_meters(x,y) ---
-    // This stores metric coordinates in `gps_x`/`gps_y` (kept for backward compatibility)
+    // --- Helper : attache les coordonnees metriques (m) a un point via pixel_to_meters(x,y) ---
+    // On stocke en gps_x/gps_y pour garder la compatibilite avec l'existant.
     function attachGpsToPoint(point) {
         if (!point) return;
         if (typeof pixel_to_meters !== 'function') return;
@@ -828,8 +833,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pixel_to_meters(x, y) {
-        // Convertir les pixels en mètres (en tenant compte de la rotation)
-        // Use the actual loaded image natural size so ratios are correct
+        // Convertit des coordonnees image (px) vers des coordonnees monde (m), avec rotation.
+        // On utilise la taille naturelle de l'image pour garder des ratios justes.
         if (!mapImage || !mapImage.naturalWidth || !mapImage.naturalHeight) return null;
 
         const imgW = mapImage.naturalWidth;
@@ -845,28 +850,19 @@ document.addEventListener('DOMContentLoaded', () => {
         const converted_x = x * ratio_conversion_width;
         const converted_y = y * ratio_conversion_height;
 
-        console.log(`pixel_to_meters: input (${x.toFixed(1)}, ${y.toFixed(1)}) px → converted (${converted_x.toFixed(1)}, ${converted_y.toFixed(1)}) px (after ratio)`);
-
         const dx = converted_x - originPixel.x;
         const dy = converted_y - originPixel.y;
-
-        console.log(`pixel_to_meters: delta from origin (${dx.toFixed(1)}, ${dy.toFixed(1)}) px`);
 
         const meters_x = dx * metersPerPixel;
         const meters_y = dy * metersPerPixel;
 
-        console.log(`pixel_to_meters: delta in meters before rotation (${meters_x.toFixed(3)}, ${meters_y.toFixed(3)}) m`);
-        // inverser signes y pour correspondre à l'orientation souhaitée du repère métrique (x vers la droite, y vers le haut)
+        // On inverse l'axe Y pour matcher le repere voulu (X vers la droite, Y vers le haut).
 
         const meters_y_inv = -meters_y;
 
-        console.log(`pixel_to_meters: delta in meters after inversion (${meters_x.toFixed(3)}, ${meters_y_inv.toFixed(3)}) m`);
-
-        // rotation de theta autour de l'origine
+        // Rotation de theta (en degres) autour de l'origine.
         const rotated_x = meters_x * cosTheta - meters_y_inv * sinTheta;
         const rotated_y = meters_x * sinTheta + meters_y_inv * cosTheta;
-
-        console.log(`pixel_to_meters: delta in meters after rotation (${rotated_x.toFixed(3)}, ${rotated_y.toFixed(3)}) m`);
 
         return { x: rotated_x, y: rotated_y };
     }
@@ -914,7 +910,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // --- Map Setup --- (src assigné APRÈS onload pour éviter la race condition avec le cache)
+    // --- Init carte --- (src assigne APRES onload pour eviter une course avec le cache)
     mapImage.src = './map.jpg';
 
 
@@ -1046,10 +1042,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 
-    // --- Point Selection ---
-    // Handle Right Click (Context Menu)
+    // --- Selection de points ---
+    // Clic droit (menu contextuel)
     mapContainer.addEventListener('contextmenu', (event) => {
-        event.preventDefault(); // Prevent default context menu
+        event.preventDefault(); // On bloque le menu contextuel du navigateur.
         if (isDragging) return;
 
         const rect = mapContainer.getBoundingClientRect();
@@ -1063,21 +1059,21 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // If in edit mode, check if clicking on a forbidden area to delete it
+        // En mode edition : clic dans une zone interdite => suppression de cette zone.
         if (editMode) {
             const clickedAreaIndex = findForbiddenAreaAt(imageX, imageY);
             if (clickedAreaIndex !== -1) {
-                // Remove the area
+                // Supprime la zone.
                 forbiddenAreas.splice(clickedAreaIndex, 1);
-                // Redraw all areas
+                // Redessine toutes les zones.
                 redrawForbiddenAreas();
             }
             return;
         }
 
-        // Add photography point (pixel coords only)
+        // Ajoute un point photo (coordonnees en px).
         const point = { id: pointIdCounter++, x: imageX, y: imageY, type: 'photography', photography: 'yes' };
-        // Attach GPS if user provided pixel_to_gps
+        // Attache les coordonnees metriques si la conversion est dispo.
         attachGpsToPoint(point);
         trajectoryPoints.push(point);
 
@@ -1107,26 +1103,26 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Let's calculate coordinates
+        // Calcul des coordonnees.
         const rect = mapContainer.getBoundingClientRect();
         const mouseX = event.clientX - rect.left;
         const mouseY = event.clientY - rect.top;
 
-        // Convert to image coordinates
+        // Conversion vers les coordonnees image (px).
         const imageX = (mouseX - view.x) / scale;
         const imageY = (mouseY - view.y) / scale;
 
-        // Check bounds (optional, if we want to restrict points to image area)
+        // Verification des bornes (on ignore les clics hors image).
         if (imageX < 0 || imageX > mapImage.naturalWidth || imageY < 0 || imageY > mapImage.naturalHeight) {
-            // Clicked outside the image
+            // Clic en dehors de l'image.
             return;
         }
 
-        // Display pixel coords only
+        // Affichage des coordonnees en px.
         gpsCoordsDisplay.textContent = `X: ${imageX.toFixed(1)} px, Y: ${imageY.toFixed(1)} px`;
 
         const point = { id: pointIdCounter++, x: imageX, y: imageY, type: 'default' };
-        // Attach GPS coordinates if available
+        // Attache les coordonnees metriques si dispo.
         attachGpsToPoint(point);
         trajectoryPoints.push(point);
 
@@ -1136,18 +1132,18 @@ document.addEventListener('DOMContentLoaded', () => {
         redrawSerreSvg();
     });
 
-    // --- Trajectory Management ---
+    // --- Gestion de trajectoire ---
     clearTrajectoryBtn.addEventListener('click', () => {
         trajectoryPoints = [];
         pointList.innerHTML = '';
         gpsCoordsDisplay.textContent = '';
         pointIdCounter = 0;
         
-        // Remove all visualized trajectory markers (startpoint is not displayed)
+        // Supprime tous les marqueurs de trajectoire affiches (le startpoint n'est pas affiche).
         const markers = mapWorld.querySelectorAll('.map-marker');
         markers.forEach(marker => marker.remove());
         
-        // Reset path to just start point
+        // Reinitialise le trace.
         updateTrajectoryPath();
         redrawSerreSvg();
     });
@@ -1158,25 +1154,25 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Remove the last point
+        // Supprime le dernier point.
         const lastPoint = trajectoryPoints.pop();
         
-        // Remove from list
+        // Retire de la liste UI.
         const listItems = pointList.querySelectorAll('li');
         if (listItems.length > 0) {
             pointList.removeChild(listItems[listItems.length - 1]);
         }
         
-        // Remove marker
+        // Retire le marqueur associe.
         const markers = mapWorld.querySelectorAll('.map-marker');
         if (markers.length > 0) {
             mapWorld.removeChild(markers[markers.length - 1]);
         }
         
-        // Update path
+        // Met a jour la polyline.
         updateTrajectoryPath();
         
-        // Update GPS display if no points left
+        // Nettoie l'affichage des coordonnees s'il n'y a plus de points.
         if (trajectoryPoints.length === 0) {
             gpsCoordsDisplay.textContent = '';
         }
@@ -1189,12 +1185,12 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleEditModeBtn.classList.toggle('active', editMode);
         toggleEditModeBtn.style.backgroundColor = editMode ? '#28a745' : '#dc3545';
         
-        // Toggle visibility of button groups
+        // Bascule l'affichage des groupes de boutons.
         trajectoryButtons.style.display = editMode ? 'none' : 'block';
         editButtons.style.display = editMode ? 'block' : 'none';
         
         if (!editMode && tempRectPoint) {
-            // Clear temporary point if exiting edit mode
+            // Nettoie le point temporaire quand on quitte le mode edition.
             const tempMarkers = mapWorld.querySelectorAll('.forbidden-area-point');
             tempMarkers.forEach(m => m.remove());
             tempRectPoint = null;
@@ -1217,7 +1213,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleSaveTrajectoryClick();
     });
 
-    // --- UI Update Functions ---
+    // --- Fonctions de mise a jour UI ---
     function addPointToVisualList(point) {
         const li = document.createElement('li');
         let typeStr = "";
@@ -1230,7 +1226,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function drawPointOnMap(point) {
-        // Le startPoint est conserve dans les donnees mais n'est pas affiche.
+        // Le startPoint reste dans les donnees, mais il n'est pas affiche.
         if (point.type === 'start') {
             if (startMarkerEl) {
                 startMarkerEl.remove();
@@ -1247,19 +1243,19 @@ document.addEventListener('DOMContentLoaded', () => {
             marker.classList.add('photography');
         }
 
-        // Position is relative to the map-world wrapper
+        // Position relative au conteneur map-world.
         marker.style.left = `${point.x}px`;
         marker.style.top = `${point.y}px`;
         marker.dataset.pointId = String(point.id);
         mapWorld.appendChild(marker);
 
-        // Update the trajectory path
+        // Met a jour la polyline de trajectoire.
         updateTrajectoryPath();
         refreshTrajectoryMarkerStyles();
     }
 
     function updateTrajectoryPath() {
-        // Ne pas relier le startPoint au premier point de trajectoire.
+        // On ne relie pas le startPoint au premier point de trajectoire.
         const pointsStr = trajectoryPoints.length > 0
             ? trajectoryPoints.map(p => `${p.x},${p.y}`).join(' ')
             : '';
@@ -1269,31 +1265,31 @@ document.addEventListener('DOMContentLoaded', () => {
         renderMissionTrajectoryOverlay();
     }
 
-    // --- Forbidden Areas Management ---
+    // --- Gestion des zones interdites ---
     function handleRectanglePoint(x, y) {
         if (!tempRectPoint) {
-            // First point
+            // Premier point du rectangle.
             tempRectPoint = { x, y };
-            // Draw temporary point
+            // Dessine un point temporaire.
             const marker = document.createElement('div');
             marker.className = 'forbidden-area-point';
             marker.style.left = `${x}px`;
             marker.style.top = `${y}px`;
             mapWorld.appendChild(marker);
         } else {
-            // Second point - create rectangle
+            // Deuxieme point -> creation du rectangle.
             const x1 = Math.min(tempRectPoint.x, x);
             const y1 = Math.min(tempRectPoint.y, y);
             const x2 = Math.max(tempRectPoint.x, x);
             const y2 = Math.max(tempRectPoint.y, y);
             
-            // Store forbidden area in pixel coordinates only
+            // Stocke la zone interdite en coordonnees px.
             const area = { x1, y1, x2, y2 };
             
             forbiddenAreas.push(area);
             drawForbiddenArea(area);
             
-            // Clear temporary point
+            // Nettoie le point temporaire.
             const tempMarkers = mapWorld.querySelectorAll('.forbidden-area-point');
             tempMarkers.forEach(m => m.remove());
             tempRectPoint = null;
@@ -1311,7 +1307,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function saveTrajectory() {
-        // Récupérer le nom de la trajectoire
+        // Recupere le nom de la trajectoire.
         const nameInput = document.getElementById('trajectory-name');
         let trajName = nameInput ? nameInput.value.trim() : '';
         
@@ -1320,10 +1316,10 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        // Nettoyer le nom (enlever les caractères spéciaux)
+        // Nettoie le nom (caracteres speciaux remplaces).
         trajName = trajName.replace(/[^a-zA-Z0-9_-]/g, '_');
         
-        // Créer les données de trajectoire
+        // Construit la charge utile de trajectoire.
         const data = {
             meta: {
                 name: trajName,
@@ -1352,17 +1348,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }))
         };
         
-        // Publier via ROS pour sauvegarde sur le serveur
+        // Envoie la demande de sauvegarde via ROS.
         const jsonString = JSON.stringify(data);
         const msg = new ROSLIB.Message({
             data: jsonString
         });
         
         saveTrajectoryPub.publish(msg);
-        console.log('Trajectoire envoyée pour sauvegarde via ROS');
-        alert(`✅ Trajectoire "${trajName}" sauvegardée !`);
+        console.log('Demande de sauvegarde envoyee via ROS');
+        alert(`📨 Demande de sauvegarde envoyee pour "${trajName}". Verification en cours cote serveur.`);
         
-        // Vider le champ de saisie
+        // Vide le champ de saisie.
         if (nameInput) nameInput.value = '';
     }
 
@@ -1412,7 +1408,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return response.json();
             })
             .then(data => {
-                // Clear current trajectory
+                // Nettoie la trajectoire actuelle.
                 trajectoryPoints = [];
                 pointList.innerHTML = '';
                 const markers = mapWorld.querySelectorAll('.map-marker');
@@ -1423,7 +1419,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     drawPointOnMap(startPoint);
                 }
                 
-                // Load trajectory
+                // Charge la trajectoire.
                 pointIdCounter = 0;
                 if (data.trajectory && Array.isArray(data.trajectory)) {
                     data.trajectory.forEach(point => {
@@ -1431,12 +1427,12 @@ document.addEventListener('DOMContentLoaded', () => {
                             id: pointIdCounter++,
                             x: point.x,
                             y: point.y,
-                            type: point.type || 'normal',
+                            type: point.type || 'default',
                             photography: point.photography || 'no',
                             gps_x: (typeof point.gps_x !== 'undefined') ? point.gps_x : null,
                             gps_y: (typeof point.gps_y !== 'undefined') ? point.gps_y : null
                         };
-                        // If file contained gps values, preserve them; otherwise compute via pixel_to_gps
+                        // Si le fichier contient deja gps_x/gps_y, on les garde; sinon on les recalcule.
                         if (newPoint.gps_x === null || newPoint.gps_y === null) {
                             attachGpsToPoint(newPoint);
                         }
@@ -1446,7 +1442,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
                 
-                // Update trajectory line
+                // Met a jour la polyline.
                 updateTrajectoryPath();
                 redrawSerreSvg();
 
@@ -1467,7 +1463,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function deleteTrajectoryFile(filename) {
         if (!confirm(`Supprimer le trajet "${filename.replace('.json', '')}" ?`)) return;
         
-        // Publier via ROS pour suppression
+        // Envoie la demande de suppression via ROS.
         const msg = new ROSLIB.Message({
             data: filename
         });
@@ -1477,12 +1473,12 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function loadForbiddenAreas() {
-        // For now, just initialize empty
-        // In a real application, you would load from a server or local storage
+        // Pour l'instant : rien a charger ici.
+        // Plus tard, on pourra charger depuis un serveur ou un stockage local.
     }
 
     function loadBlankAreas() {
-        // Load blank_area.json file
+        // Charge le fichier blank_area.json.
         fetch('./blank_area.json')
             .then(response => {
                 if (!response.ok) {
@@ -1491,12 +1487,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 return response.json();
             })
             .then(data => {
-                // Clear existing areas
+                // Nettoie les zones deja presentes.
                 forbiddenAreas = [];
                 const rects = mapWorld.querySelectorAll('.forbidden-area');
                 rects.forEach(r => r.remove());
                 
-                // Load areas from file
+                // Recharge les zones depuis le fichier.
                 if (data.forbiddenAreas && Array.isArray(data.forbiddenAreas)) {
                     data.forbiddenAreas.forEach(areaData => {
                         const area = {
@@ -1518,7 +1514,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function findForbiddenAreaAt(x, y) {
-        // Find if a point is inside a forbidden area
+        // Retourne l'index de la zone si le point (x,y) en px est dedans.
         for (let i = 0; i < forbiddenAreas.length; i++) {
             const area = forbiddenAreas[i];
             if (x >= area.x1 && x <= area.x2 && y >= area.y1 && y <= area.y2) {
@@ -1528,7 +1524,7 @@ document.addEventListener('DOMContentLoaded', () => {
         return -1;
     }
 
-    // --- Serre: helper functions to detect and open the serre view ---
+    // --- Serre : helpers pour detecter et ouvrir la vue serre ---
     function isPointInPixelRect(px, py, rect) {
         return px >= rect.x1 && px <= rect.x2 && py >= rect.y1 && py <= rect.y2;
     }
@@ -1541,7 +1537,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Create a small 2-tab UI in the top-left corner of the map container
+    // Cree une mini UI a 2 onglets dans le coin haut-gauche de la carte.
     function createTabsIfNeeded() {
         if (document.getElementById('map-tabs')) return;
 
@@ -1585,7 +1581,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         mapContainer.appendChild(tabs);
 
-        // Create serre tab content – fills the container below the tab bar
+        // Cree le contenu de l'onglet serre (il remplit la zone sous les onglets).
         const serreContent = document.createElement('div');
         serreContent.id = 'serre-tab-content';
         Object.assign(serreContent.style, {
@@ -1600,7 +1596,7 @@ document.addEventListener('DOMContentLoaded', () => {
             display: 'none'
         });
 
-        // Use an <img> so we can map clicks to image pixels reliably (cover-like behaviour)
+        // On utilise une image pour convertir les clics en px image de facon fiable.
         const serreImg = document.createElement('img');
         serreImg.id = 'serre-image';
         serreImg.src = './serre.jpg';
@@ -1611,7 +1607,7 @@ document.addEventListener('DOMContentLoaded', () => {
             objectFit: 'fill'
         });
 
-        // SVG overlay to draw points and connecting polyline (fills the whole content div)
+        // SVG superpose pour dessiner les points et la polyline.
         const serreSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         serreSvg.id = 'serre-svg';
         Object.assign(serreSvg.style, {
@@ -1627,22 +1623,22 @@ document.addEventListener('DOMContentLoaded', () => {
         serreContent.appendChild(serreSvg);
         mapContainer.appendChild(serreContent);
 
-        // When the serre image loads, compute the display layout
+        // Quand l'image serre est chargee, on recalcule le layout d'affichage.
         serreImg.addEventListener('load', () => {
             updateSerreImgLayout();
         });
 
-        // Helper: convert a click inside serreContent to an exterior map pixel
+        // Helper : convertit un clic dans serreContent vers un point en px carte exterieure.
         function serreClickToPoint(ev, type) {
             const rect = serreContent.getBoundingClientRect();
             const clickX = ev.clientX - rect.left;
             const clickY = ev.clientY - rect.top;
             const img = document.getElementById('serre-image');
             if (!img || !img.naturalWidth) return null;
-            // display coords → serre image pixel
+            // Coordonnees d'affichage -> px image serre.
             const sImgX = (clickX - serreImgOffsetX) / serreImgDisplayScale;
             const sImgY = (clickY - serreImgOffsetY) / serreImgDisplayScale;
-            // serre image pixel → exterior map pixel
+            // Px image serre -> px carte exterieure.
             const rectW = serreRectPixels.x2 - serreRectPixels.x1;
             const rectH = serreRectPixels.y2 - serreRectPixels.y1;
             const extX = serreRectPixels.x1 + sImgX / img.naturalWidth  * rectW;
@@ -1652,7 +1648,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return point;
         }
 
-        // Left-click in serre → default point
+        // Clic gauche dans la serre -> point standard.
         serreContent.addEventListener('click', (ev) => {
             if (ev.target.closest('#map-tabs')) return;
             ev.stopPropagation();
@@ -1664,7 +1660,7 @@ document.addEventListener('DOMContentLoaded', () => {
             redrawSerreSvg();
         });
 
-        // Right-click in serre → photography point (mirror of exterior contextmenu)
+        // Clic droit dans la serre -> point photo (meme logique que la carte exterieure).
         serreContent.addEventListener('contextmenu', (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
@@ -1677,7 +1673,7 @@ document.addEventListener('DOMContentLoaded', () => {
             redrawSerreSvg();
         });
 
-        // Ensure initial state shows exterior
+        // Par defaut on montre l'exterieur.
         activateTab('exterior');
     }
 
@@ -1688,13 +1684,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!btnExterior || !btnSerre || !serreContent) return;
 
-        // Exclusive view: either show the exterior map (`mapWorld`) or the serre content
+        // Vue exclusive : soit la carte exterieure, soit le contenu serre.
         if (name === 'serre') {
             btnSerre.style.background = '#0056b3';
             btnExterior.style.background = '#5e95cf';
             serreContent.style.display = 'block';
             if (mapWorld) mapWorld.style.display = 'none';
-            // Recompute layout now that the content div is visible
+            // Recalcule le layout maintenant que la zone est visible.
             updateSerreImgLayout();
         } else {
             btnSerre.style.background = '#5e95cf';
@@ -1722,7 +1718,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function openSerreTab(metricCoords) {
         createTabsIfNeeded();
         activateTab('serre');
-        // metricCoords is an object {x,y} in metres (previously called 'gps')
+        // metricCoords est un objet {x,y} en metres.
     }
 
     function redrawSerreSvg() {
@@ -1732,7 +1728,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (!trajectoryPoints || trajectoryPoints.length === 0) return;
 
-        // Map each exterior pixel → serre image pixel → serre display coords
+        // Conversion : px exterieur -> px image serre -> px affichage serre.
         const imgEl = document.getElementById('serre-image');
         const serreNatW = imgEl ? imgEl.naturalWidth  : 1;
         const serreNatH = imgEl ? imgEl.naturalHeight : 1;
@@ -1750,7 +1746,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const ns = 'http://www.w3.org/2000/svg';
 
-        // Polyline – mirror style from main trajectoryPath but thinner
+        // Polyline : meme style que la principale, mais plus fine.
         const poly = document.createElementNS(ns, 'polyline');
         poly.setAttribute('points', displayPts.map(pt => `${pt.cx},${pt.cy}`).join(' '));
         poly.setAttribute('fill', 'none');
@@ -1772,7 +1768,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         svg.appendChild(poly);
 
-        // Point markers – red for normal, green for photography (matches exterior .map-marker CSS)
+        // Marqueurs : rouge = normal, vert = photo (comme la carte exterieure).
         displayPts.forEach(pt => {
             const isPhoto = pt.type === 'photography';
             const c = document.createElementNS(ns, 'circle');
@@ -1787,16 +1783,16 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function redrawForbiddenAreas() {
-        // Remove all existing rectangles
+        // Supprime tous les rectangles existants.
         const rects = mapWorld.querySelectorAll('.forbidden-area');
         rects.forEach(r => r.remove());
         
-        // Redraw all areas
+        // Redessine toutes les zones.
         forbiddenAreas.forEach(area => drawForbiddenArea(area));
     }
 
-    // Compute serre image display layout: contain-fit at 70% of the tab content area, centred.
-    // serreImgDisplayScale / Offset are used by redrawSerreSvg and serreClickToPoint.
+    // Calcule l'affichage de serre.jpg : mode contain a 70% de la zone, puis centre.
+    // serreImgDisplayScale / offsets sont reutilises par redrawSerreSvg et serreClickToPoint.
     function updateSerreImgLayout() {
         const img = document.getElementById('serre-image');
         const svg = document.getElementById('serre-svg');
@@ -1806,7 +1802,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const contW = mapContainer.clientWidth;
         const contH = Math.max(1, mapContainer.clientHeight - tabH);
 
-        // Contain-fit, scaled to 70% of the available area
+        // contain-fit, puis mise a l'echelle a 70% de la zone dispo.
         const fillRatio = 0.70;
         const sc = Math.min(contW / img.naturalWidth, contH / img.naturalHeight) * fillRatio;
         const renderedW = Math.round(img.naturalWidth  * sc);
@@ -1833,12 +1829,12 @@ document.addEventListener('DOMContentLoaded', () => {
         redrawSerreSvg();
     }
 
-    // --- Collapsible Sections ---
+    // --- Sections repliables ---
     window.toggleSection = function(sectionId) {
         const section = document.getElementById(sectionId);
         section.classList.toggle('collapsed');
         
-        // Update arrow
+        // Met a jour la fleche du titre.
         const header = section.previousElementSibling;
         const arrow = header.querySelector('span');
         if (arrow) {
@@ -1846,7 +1842,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // Font size slider - sync with header slider
+    // Slider de taille de police - synchro avec le header.
     const fontSizes = ['small', 'medium', 'large'];
     const fontSizeLabels = ['Petit', 'Moyen', 'Grand'];
     
@@ -1855,33 +1851,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const value = parseInt(headerFontSizeSlider.value);
             const size = fontSizes[value - 1];
             
-            // Remove all font classes
+            // Retire les classes de taille precedentes.
             document.body.classList.remove('font-small', 'font-medium', 'font-large');
             
-            // Add selected class
+            // Applique la nouvelle taille.
             document.body.classList.add(`font-${size}`);
             
-            // Update labels
+            // Met a jour le label.
             headerFontSizeLabel.textContent = fontSizeLabels[value - 1];
             
-            // Save preference
+            // Sauvegarde la preference en cookie.
             setCookie('fontSize', size, 365);
         });
     }
 
-    // Dark mode toggle
+    // Bascule mode sombre.
     if (darkModeToggle) {
         darkModeToggle.addEventListener('click', () => {
             document.body.classList.toggle('dark-mode');
             const isDarkMode = document.body.classList.contains('dark-mode');
             darkModeToggle.textContent = isDarkMode ? '☀️' : '🌙';
             
-            // Save preference
+            // Sauvegarde la preference en cookie.
             setCookie('darkMode', isDarkMode ? 'on' : 'off', 365);
         });
     }
 
-    // Load saved font size preference
+    // Recharge la preference de taille de police.
     const savedFontSize = getCookie('fontSize');
     if (savedFontSize) {
         document.body.classList.add(`font-${savedFontSize}`);
@@ -1891,32 +1887,20 @@ document.addEventListener('DOMContentLoaded', () => {
             if (headerFontSizeLabel) headerFontSizeLabel.textContent = fontSizeLabels[sizeIndex];
         }
     } else {
-        // Default to medium
+        // Valeur par defaut : medium.
         document.body.classList.add('font-medium');
         if (headerFontSizeSlider) headerFontSizeSlider.value = 2;
         if (headerFontSizeLabel) headerFontSizeLabel.textContent = 'Moyen';
     }
 
-    // Load saved dark mode preference
+    // Recharge la preference de mode sombre.
     const savedDarkMode = getCookie('darkMode');
     if (savedDarkMode === 'on') {
         document.body.classList.add('dark-mode');
         if (darkModeToggle) darkModeToggle.textContent = '☀️';
     }
 
-    clearForbiddenAreasBtn.addEventListener('click', () => {
-        if (confirm('Voulez-vous vraiment effacer toutes les zones interdites ?')) {
-            forbiddenAreas = [];
-            const rects = mapWorld.querySelectorAll('.forbidden-area');
-            rects.forEach(r => r.remove());
-        }
-    });
-
-    resetForbiddenAreasBtn.addEventListener('click', () => {
-        loadBlankAreas();
-    });
-
-    // Header settings button - make it rotate
+    // Bouton reglages du header : petite rotation au survol.
     if (headerSettingsBtn) {
         headerSettingsBtn.addEventListener('mouseover', () => {
             headerSettingsBtn.style.transform = 'rotate(180deg)';
@@ -1926,29 +1910,28 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // Header toggle edit mode - sync with main button
+    // Bouton header "mode edition" : il clique sur le bouton principal.
     if (headerToggleEditModeBtn) {
         headerToggleEditModeBtn.addEventListener('click', () => {
             toggleEditModeBtn.click();
         });
     }
 
-    // Header clear forbidden areas - sync with main button
+    // Bouton header "effacer zones" : synchro avec le bouton principal.
     if (headerClearForbiddenAreasBtn) {
         headerClearForbiddenAreasBtn.addEventListener('click', () => {
             clearForbiddenAreasBtn.click();
         });
     }
 
-    // Header reset forbidden areas - sync with main button
+    // Bouton header "reset zones" : synchro avec le bouton principal.
     if (headerResetForbiddenAreasBtn) {
         headerResetForbiddenAreasBtn.addEventListener('click', () => {
             resetForbiddenAreasBtn.click();
         });
     }
 
-    // Update header buttons when main toggleEditModeBtn changes
-    const originalToggleEditModeClick = toggleEditModeBtn.onclick;
+    // Met a jour l'etat des boutons header quand le mode edition change.
     const updateHeaderEditMode = () => {
         if (headerToggleEditModeBtn) {
             headerToggleEditModeBtn.textContent = toggleEditModeBtn.textContent;
@@ -1957,7 +1940,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
-    // Observe changes to editButtons visibility
+    // Observe les changements de visibilite du bloc editButtons.
     const observer = new MutationObserver(updateHeaderEditMode);
     observer.observe(editButtons, { attributes: true, attributeFilter: ['style'] });
 });
@@ -1973,7 +1956,7 @@ function toggleHeaderSettings() {
     }
 }
 
-// Fermer la modale quand on clique en dehors
+// Ferme la modale quand on clique a l'exterieur.
 document.addEventListener('click', (e) => {
     const modal = document.getElementById('header-settings-modal');
     if (modal && e.target === modal) {
@@ -1981,26 +1964,4 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// Charger les préférences au démarrage
-window.addEventListener('load', () => {
-    const fontSizeSlider = document.getElementById('header-font-size-slider');
-    const fontSizeLabels = ['Petit', 'Moyen', 'Grand'];
-    const fontSizes = ['small', 'medium', 'large'];
-    
-    const savedFontSize = getCookie('fontSize');
-    if (savedFontSize && fontSizeSlider) {
-        const sizeIndex = fontSizes.indexOf(savedFontSize);
-        if (sizeIndex !== -1) {
-            fontSizeSlider.value = sizeIndex + 1;
-        }
-    }
-    
-    const darkMode = getCookie('darkMode');
-    if (darkMode === 'on') {
-        document.body.classList.add('dark-mode');
-        const btn = document.getElementById('dark-mode-toggle');
-        if (btn) {
-            btn.textContent = '☀️';
-        }
-    }
-});
+// Les preferences UI sont deja rechargees dans DOMContentLoaded.
