@@ -10,6 +10,8 @@ class ArduinoBridge(Node):
    def __init__(self):
        super().__init__('arduino_bridge')
        self.serial_port = None
+       self.reconnect_interval_s = 5.0
+       self.next_reconnect_time = 0.0
       
        self.connect_to_arduino()
 
@@ -39,6 +41,11 @@ class ArduinoBridge(Node):
 
 
    def connect_to_arduino(self):
+       now = time.monotonic()
+       if now < self.next_reconnect_time:
+           return False
+       self.next_reconnect_time = now + self.reconnect_interval_s
+
        ports_to_try = ['/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyUSB0', '/dev/ttyUSB1']
       
        for port in ports_to_try:
@@ -46,6 +53,7 @@ class ArduinoBridge(Node):
                self.serial_port = serial.Serial(port, 115200, timeout=0.1, write_timeout=0.1)
                self.get_logger().info(f"✅ Connecté à l'Arduino sur {port} !")
                time.sleep(2)
+               self.next_reconnect_time = 0.0
               
                # Forcer l'envoi au prochain cycle
                self.last_sent_pos_pct = -100.0
