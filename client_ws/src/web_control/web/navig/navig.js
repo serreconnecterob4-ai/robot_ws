@@ -596,6 +596,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const forbiddenCount = analysis.forbiddenIds.length;
         const dangerCount = analysis.dangerIds.length;
 
+        // Si des points interdits sont detectes en vue serre, revenir tout de suite sur la carte exterieure.
+        if (forbiddenCount > 0) {
+            switchToExteriorTabIfSerreActive();
+        }
+
         if (forbiddenCount === 0 && dangerCount === 0) {
             stopRiskVisualsNow();
             saveTrajectory();
@@ -1696,6 +1701,21 @@ document.addEventListener('DOMContentLoaded', () => {
             btnExterior.style.background = '#0056b3';
             serreContent.style.display = 'none';
             if (mapWorld) mapWorld.style.display = 'block';
+        }
+    }
+
+    function isSerreTabActive() {
+        const serreContent = document.getElementById('serre-tab-content');
+        if (!serreContent) return false;
+
+        const computedDisplay = window.getComputedStyle(serreContent).display;
+        const mapWorldDisplay = mapWorld ? window.getComputedStyle(mapWorld).display : 'unknown';
+        return computedDisplay !== 'none' || mapWorldDisplay === 'none';
+    }
+
+    function switchToExteriorTabIfSerreActive() {
+        if (isSerreTabActive()) {
+            activateTab('exterior');
         }
     }
 
