@@ -72,8 +72,8 @@ def generate_launch_description():
     ekf_timer = TimerAction(period=6.0, actions=[ekf_include])
     odom_relay_timer = TimerAction(period=8.0, actions=[odom_relay_process])
     rosbridge_websocket_timer = TimerAction(period=10.0, actions=[rosbridge_websocket])
-    nav2_timer = TimerAction(period=30.0, actions=[nav2_include])
-    waypoint_timer = TimerAction(period=40.0, actions=[waypoint_process])
+    nav2_timer = TimerAction(period=20.0, actions=[nav2_include])
+    waypoint_timer = TimerAction(period=10.0, actions=[waypoint_process])
     gate_timer = TimerAction(period=41.0, actions=[gate_process])
     arm_controller_timer = TimerAction(period=45.0, actions=[arm_controller_process])
 
