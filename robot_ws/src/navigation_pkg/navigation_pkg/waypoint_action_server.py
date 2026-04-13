@@ -25,6 +25,7 @@ from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalRespons
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 
 from action_msgs.msg import GoalStatus
 from geometry_msgs.msg import PoseStamped, Twist
@@ -32,7 +33,7 @@ from nav2_msgs.action import NavigateThroughPoses, NavigateToPose
 from navigation_interfaces.action import NavigateWaypoints
 from rcl_interfaces.msg import Log, Parameter, ParameterType, ParameterValue
 from rcl_interfaces.srv import SetParameters
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from camera.capture_manager import CaptureManager
 
 
@@ -89,8 +90,10 @@ class WaypointActionServer(Node):
         self.declare_parameter('max_planner_no_path', 6) # nombre de feedback "no valid path found" consécutifs du planner avant de conclure à un trajet interdit et d'arrêter la mission
         self.declare_parameter('pause_resume_idle_cmd_sec', 60.0) # durée d'inactivité sur cmd_vel pendant la pause avant reprise auto de la mission
         self.declare_parameter('pause_resume_max_sec', 300.0) # durée de pause avant reprise auto uniquement si aucun cmd_vel n'a été détecté pendant toute la pause
-        self.declare_parameter('ui_link_timeout_sec', 60.0) # timeout sans messages UI entrants avant retour home hors mission
-        self.declare_parameter('ui_link_check_period_sec', 2.0) # période du watchdog UI
+        self.declare_parameter('rosbridge_status_topic', '/rosbridge/connected') # topic de statut publie par odom_rosbridge_relay
+        self.declare_parameter('rosbridge_link_timeout_sec', 60.0) # timeout sans rosbridge connecte avant retour home hors mission
+        self.declare_parameter('rosbridge_link_check_period_sec', 2.0) # période du watchdog rosbridge
+        self.declare_parameter('idle_home_retry_sec', 30.0) # intervalle entre 2 tentatives de retour home si liaison UI perdue
 
 
 
@@ -169,6 +172,19 @@ class WaypointActionServer(Node):
             callback_group=self._cb_group,
         )
 
+        rosbridge_status_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.create_subscription(
+            Bool,
+            self.get_parameter('rosbridge_status_topic').get_parameter_value().string_value,
+            self._cb_rosbridge_status,
+            rosbridge_status_qos,
+            callback_group=self._cb_group,
+        )
+
         # Activite teleop: utilise pour reprise auto watchdog pendant pause mission
         self.create_subscription(
             Twist,
@@ -204,8 +220,10 @@ class WaypointActionServer(Node):
         self._max_planner_no_path: int = self.get_parameter('max_planner_no_path').value
         self._pause_resume_idle_cmd_sec: float = self.get_parameter('pause_resume_idle_cmd_sec').value
         self._pause_resume_max_sec: float = self.get_parameter('pause_resume_max_sec').value
-        self._ui_link_timeout_sec: float = self.get_parameter('ui_link_timeout_sec').value
-        self._ui_link_check_period_sec: float = self.get_parameter('ui_link_check_period_sec').value
+        self._rosbridge_status_topic: str = self.get_parameter('rosbridge_status_topic').value
+        self._rosbridge_link_timeout_sec: float = self.get_parameter('rosbridge_link_timeout_sec').value
+        self._rosbridge_link_check_period_sec: float = self.get_parameter('rosbridge_link_check_period_sec').value
+        self._idle_home_retry_sec: float = self.get_parameter('idle_home_retry_sec').value
 
         # endregion
 
@@ -245,13 +263,16 @@ class WaypointActionServer(Node):
         self._last_ui_start_monotonic: float = 0.0
         self._last_ui_cancel_cmd: str = ''
         self._last_ui_cancel_monotonic: float = 0.0
-        self._last_ui_rx_monotonic: float = time.monotonic()
-        self._ui_link_loss_handled: bool = False
+        self._rosbridge_disconnected_since_monotonic: float = time.monotonic()
+        self._rosbridge_connected: bool = False
+        self._rosbridge_link_lost: bool = False
+        self._home_return_done_for_current_link_loss: bool = False
+        self._last_idle_home_attempt_monotonic: float = 0.0
         self._idle_home_in_progress: bool = False
         self._idle_home_lock = threading.Lock()
         # endregion
 
-        self.create_timer(self._ui_link_check_period_sec, self._check_ui_link_watchdog)
+        self.create_timer(self._rosbridge_link_check_period_sec, self._check_rosbridge_link_watchdog)
         
         self.get_logger().info('🚀 WaypointActionServer prêt, en attente d\'un goal...')
 
@@ -671,7 +692,7 @@ class WaypointActionServer(Node):
         # ── Mission terminée ─────────────────────────────────────────────────
         self.get_logger().info('\033[92m✅ Mission complète !\033[0m')
         goal_handle.succeed()
-        self._check_ui_link_watchdog()
+        self._check_rosbridge_link_watchdog()
         return self._make_result(True, 'Tous les waypoints atteints avec succès')
 
     async def _go_to_home(self, goal_handle) -> bool:
@@ -1005,8 +1026,6 @@ class WaypointActionServer(Node):
 
     def _cb_ui_start(self, msg: String):
         """Reçoit un JSON {waypoints_x, waypoints_y, take_photo} et lance la mission."""
-        self._mark_ui_activity('start_mission')
-
         if self._web_goal_pending or self._web_goal_handle is not None:
             self.get_logger().warn(
                 'Commande /ui/start_mission ignoree: mission deja en cours (anti-preemption)'
@@ -1067,8 +1086,6 @@ class WaypointActionServer(Node):
 
     def _cb_ui_cancel(self, _msg: String):
         """Commande mission web: cancel, pause, ou resume."""
-        self._mark_ui_activity('cancel_mission')
-
         command = (_msg.data or '').strip().lower()
         now = time.monotonic()
         if (
@@ -1228,39 +1245,67 @@ class WaypointActionServer(Node):
         self.get_logger().info(
             f'🌐 Résultat publié sur /ui/mission_result : success={result.success}'
         )
-        # Si la liaison web est perdue à la fin de mission, on déclenche le retour home.
-        self._check_ui_link_watchdog()
+        # Si rosbridge est perdu à la fin de mission, on déclenche le retour home.
+        self._check_rosbridge_link_watchdog()
 
-    def _mark_ui_activity(self, source: str) -> None:
+    def _cb_rosbridge_status(self, msg: Bool) -> None:
         now = time.monotonic()
-        was_lost = self._ui_link_loss_handled
-        self._last_ui_rx_monotonic = now
-        self._ui_link_loss_handled = False
+        was_connected = self._rosbridge_connected
+        was_lost = self._rosbridge_link_lost
 
-        if was_lost:
-            self.get_logger().info(f'🌐 Liaison UI rétablie (source={source}).')
+        self._rosbridge_connected = bool(msg.data)
+        if self._rosbridge_connected:
+            self._rosbridge_disconnected_since_monotonic = 0.0
+            self._rosbridge_link_lost = False
+            self._home_return_done_for_current_link_loss = False
+            self._last_idle_home_attempt_monotonic = 0.0
+            if was_lost or not was_connected:
+                self.get_logger().info('🌐 Rosbridge reconnecté.')
+        elif was_connected:
+            self._rosbridge_disconnected_since_monotonic = now
+            self._home_return_done_for_current_link_loss = False
+            self._last_idle_home_attempt_monotonic = 0.0
+            self.get_logger().warn('⚠ Rosbridge déconnecté.')
+        elif self._rosbridge_disconnected_since_monotonic <= 0.0:
+            self._rosbridge_disconnected_since_monotonic = now
 
-    def _check_ui_link_watchdog(self) -> None:
+    def _check_rosbridge_link_watchdog(self) -> None:
         if self._web_goal_pending or self._web_goal_handle is not None:
             return
 
         if self._idle_home_in_progress:
             return
 
+        if self._rosbridge_connected:
+            return
+
+        if self._rosbridge_disconnected_since_monotonic <= 0.0:
+            self._rosbridge_disconnected_since_monotonic = now
+
         now = time.monotonic()
-        elapsed = now - self._last_ui_rx_monotonic
-        if elapsed < self._ui_link_timeout_sec:
+        elapsed = now - self._rosbridge_disconnected_since_monotonic
+        if elapsed < self._rosbridge_link_timeout_sec:
             return
 
-        if self._ui_link_loss_handled:
+        if not self._rosbridge_link_lost:
+            self._rosbridge_link_lost = True
+            self.get_logger().warn(
+                '⚠ Rosbridge indisponible depuis '
+                f'{elapsed:.1f}s (seuil={self._rosbridge_link_timeout_sec:.1f}s) hors mission.'
+            )
+
+        if self._home_return_done_for_current_link_loss:
             return
 
-        self._ui_link_loss_handled = True
-        self.get_logger().warn(
-            '⚠ Aucun message UI reçu depuis '
-            f'{elapsed:.1f}s (seuil={self._ui_link_timeout_sec:.1f}s) hors mission: retour home.'
-        )
-        self._trigger_idle_home_return('ui_timeout')
+        if (
+            self._last_idle_home_attempt_monotonic > 0.0
+            and (now - self._last_idle_home_attempt_monotonic) < self._idle_home_retry_sec
+        ):
+            return
+
+        self._last_idle_home_attempt_monotonic = now
+        self.get_logger().warn('🏠 Tentative de retour home automatique (rosbridge perdu).')
+        self._trigger_idle_home_return('rosbridge_timeout')
 
     def _trigger_idle_home_return(self, reason: str) -> None:
         with self._idle_home_lock:
@@ -1272,12 +1317,13 @@ class WaypointActionServer(Node):
             try:
                 success = self._go_to_home_blocking()
                 if success:
+                    self._home_return_done_for_current_link_loss = True
                     self.get_logger().info(
                         f'🏠 Retour home hors mission termine (reason={reason}).'
                     )
                 else:
                     self.get_logger().warn(
-                        f'🏠 Retour home hors mission échoué (reason={reason}).'
+                        f'🏠 Retour home hors mission échoué (reason={reason}), nouvelle tentative prévue.'
                     )
             finally:
                 with self._idle_home_lock:
@@ -1287,7 +1333,7 @@ class WaypointActionServer(Node):
 
     def _go_to_home_blocking(self) -> bool:
         """Retour home hors contexte action (pas de cancel goal externe)."""
-        self.get_logger().warn('🏠 Retour home automatique (watchdog liaison UI)...')
+        self.get_logger().warn('🏠 Retour home automatique (watchdog rosbridge)...')
 
         if not self._nav2_goto_client.wait_for_server(timeout_sec=5.0):
             self.get_logger().error('NavigateToPose non disponible pour retour home automatique')

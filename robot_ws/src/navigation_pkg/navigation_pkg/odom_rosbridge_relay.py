@@ -13,8 +13,9 @@ import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from rosidl_runtime_py.convert import message_to_ordereddict
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 
 class MinimalWebSocketClient:
@@ -154,6 +155,7 @@ class OdomRosbridgeRelay(Node):
         self.declare_parameter('mission_result_target_topic', '/ui/mission_result')
         self.declare_parameter('mission_feedback_source_topic', '/ui/mission_feedback')
         self.declare_parameter('mission_feedback_target_topic', '/ui/mission_feedback')
+        self.declare_parameter('connection_status_topic', '/rosbridge/connected')
         self.declare_parameter('reconnect_period_sec', 5.0)
         self.declare_parameter('publish_rate_hz', 1.0)
 
@@ -173,6 +175,9 @@ class OdomRosbridgeRelay(Node):
         self.mission_feedback_target_topic = self.get_parameter(
             'mission_feedback_target_topic'
         ).get_parameter_value().string_value
+        self.connection_status_topic = self.get_parameter(
+            'connection_status_topic'
+        ).get_parameter_value().string_value
         self.reconnect_period_sec = self.get_parameter('reconnect_period_sec').get_parameter_value().double_value
         self.publish_rate_hz = self.get_parameter('publish_rate_hz').get_parameter_value().double_value
 
@@ -183,6 +188,18 @@ class OdomRosbridgeRelay(Node):
         self._advertised_topics = set()
         self._last_publish_time_by_topic = {}
         self._min_publish_period_sec = 1.0 / max(0.01, float(self.publish_rate_hz))
+        self._bridge_connected = False
+
+        status_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._connection_status_pub = self.create_publisher(
+            Bool,
+            self.connection_status_topic,
+            status_qos,
+        )
 
         self._topic_specs = [
             {
@@ -206,6 +223,7 @@ class OdomRosbridgeRelay(Node):
         self.create_subscription(String, self.mission_result_source_topic, self._on_mission_result, 20)
         self.create_subscription(String, self.mission_feedback_source_topic, self._on_mission_feedback, 20)
         self.create_timer(self.reconnect_period_sec, self._ensure_connected)
+        self._set_connection_status(False)
 
         self.get_logger().info(
             'Relay rosbridge actif: '
@@ -228,10 +246,22 @@ class OdomRosbridgeRelay(Node):
                 self._ws = ws
                 self._advertised_topics = set()
                 self._advertise_all_topics()
+                self._set_connection_status(True)
                 self.get_logger().info(f'Connecte a rosbridge: {self.bridge_url}')
             except Exception as exc:
                 self._ws = None
+                self._set_connection_status(False)
                 self.get_logger().warn(f'Connexion rosbridge echouee ({self.bridge_url}): {exc}')
+
+    def _set_connection_status(self, connected):
+        connected = bool(connected)
+        if self._bridge_connected == connected:
+            return
+
+        self._bridge_connected = connected
+        msg = Bool()
+        msg.data = connected
+        self._connection_status_pub.publish(msg)
 
     def _advertise_topic(self, target_topic, ros_type):
         if self._ws is None or target_topic in self._advertised_topics:
@@ -304,6 +334,7 @@ class OdomRosbridgeRelay(Node):
             self._ws = None
             self._advertised_topics = set()
             self._last_publish_time_by_topic = {}
+            self._set_connection_status(False)
 
     def destroy_node(self):
         self._close_ws()
