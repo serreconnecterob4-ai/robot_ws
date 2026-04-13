@@ -67,7 +67,7 @@ def generate_launch_description():
         ],
         output='screen'
     )
-
+    # ip to change juste above
     # Stagger the start of each included launch / process to avoid race conditions
     ekf_timer = TimerAction(period=6.0, actions=[ekf_include])
     odom_relay_timer = TimerAction(period=8.0, actions=[odom_relay_process])

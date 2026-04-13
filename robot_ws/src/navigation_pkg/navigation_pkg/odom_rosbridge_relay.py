@@ -146,7 +146,7 @@ class OdomRosbridgeRelay(Node):
     def __init__(self):
         super().__init__('odom_rosbridge_relay')
 
-        self.declare_parameter('bridge_host', '100.92.193.85')
+        self.declare_parameter('bridge_host', '100.92.193.85') #ip to change
         self.declare_parameter('bridge_port', 9090)
         self.declare_parameter('source_topic', '/odometry/filtered')
         self.declare_parameter('target_topic', '/odometry/filtered')
