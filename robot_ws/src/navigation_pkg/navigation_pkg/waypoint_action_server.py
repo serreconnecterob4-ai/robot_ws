@@ -89,6 +89,8 @@ class WaypointActionServer(Node):
         self.declare_parameter('max_planner_no_path', 6) # nombre de feedback "no valid path found" consécutifs du planner avant de conclure à un trajet interdit et d'arrêter la mission
         self.declare_parameter('pause_resume_idle_cmd_sec', 60.0) # durée d'inactivité sur cmd_vel pendant la pause avant reprise auto de la mission
         self.declare_parameter('pause_resume_max_sec', 300.0) # durée de pause avant reprise auto uniquement si aucun cmd_vel n'a été détecté pendant toute la pause
+        self.declare_parameter('ui_link_timeout_sec', 60.0) # timeout sans messages UI entrants avant retour home hors mission
+        self.declare_parameter('ui_link_check_period_sec', 2.0) # période du watchdog UI
 
 
 
@@ -202,6 +204,8 @@ class WaypointActionServer(Node):
         self._max_planner_no_path: int = self.get_parameter('max_planner_no_path').value
         self._pause_resume_idle_cmd_sec: float = self.get_parameter('pause_resume_idle_cmd_sec').value
         self._pause_resume_max_sec: float = self.get_parameter('pause_resume_max_sec').value
+        self._ui_link_timeout_sec: float = self.get_parameter('ui_link_timeout_sec').value
+        self._ui_link_check_period_sec: float = self.get_parameter('ui_link_check_period_sec').value
 
         # endregion
 
@@ -241,7 +245,13 @@ class WaypointActionServer(Node):
         self._last_ui_start_monotonic: float = 0.0
         self._last_ui_cancel_cmd: str = ''
         self._last_ui_cancel_monotonic: float = 0.0
+        self._last_ui_rx_monotonic: float = time.monotonic()
+        self._ui_link_loss_handled: bool = False
+        self._idle_home_in_progress: bool = False
+        self._idle_home_lock = threading.Lock()
         # endregion
+
+        self.create_timer(self._ui_link_check_period_sec, self._check_ui_link_watchdog)
         
         self.get_logger().info('🚀 WaypointActionServer prêt, en attente d\'un goal...')
 
@@ -661,6 +671,7 @@ class WaypointActionServer(Node):
         # ── Mission terminée ─────────────────────────────────────────────────
         self.get_logger().info('\033[92m✅ Mission complète !\033[0m')
         goal_handle.succeed()
+        self._check_ui_link_watchdog()
         return self._make_result(True, 'Tous les waypoints atteints avec succès')
 
     async def _go_to_home(self, goal_handle) -> bool:
@@ -994,6 +1005,8 @@ class WaypointActionServer(Node):
 
     def _cb_ui_start(self, msg: String):
         """Reçoit un JSON {waypoints_x, waypoints_y, take_photo} et lance la mission."""
+        self._mark_ui_activity('start_mission')
+
         if self._web_goal_pending or self._web_goal_handle is not None:
             self.get_logger().warn(
                 'Commande /ui/start_mission ignoree: mission deja en cours (anti-preemption)'
@@ -1054,6 +1067,8 @@ class WaypointActionServer(Node):
 
     def _cb_ui_cancel(self, _msg: String):
         """Commande mission web: cancel, pause, ou resume."""
+        self._mark_ui_activity('cancel_mission')
+
         command = (_msg.data or '').strip().lower()
         now = time.monotonic()
         if (
@@ -1213,6 +1228,101 @@ class WaypointActionServer(Node):
         self.get_logger().info(
             f'🌐 Résultat publié sur /ui/mission_result : success={result.success}'
         )
+        # Si la liaison web est perdue à la fin de mission, on déclenche le retour home.
+        self._check_ui_link_watchdog()
+
+    def _mark_ui_activity(self, source: str) -> None:
+        now = time.monotonic()
+        was_lost = self._ui_link_loss_handled
+        self._last_ui_rx_monotonic = now
+        self._ui_link_loss_handled = False
+
+        if was_lost:
+            self.get_logger().info(f'🌐 Liaison UI rétablie (source={source}).')
+
+    def _check_ui_link_watchdog(self) -> None:
+        if self._web_goal_pending or self._web_goal_handle is not None:
+            return
+
+        if self._idle_home_in_progress:
+            return
+
+        now = time.monotonic()
+        elapsed = now - self._last_ui_rx_monotonic
+        if elapsed < self._ui_link_timeout_sec:
+            return
+
+        if self._ui_link_loss_handled:
+            return
+
+        self._ui_link_loss_handled = True
+        self.get_logger().warn(
+            '⚠ Aucun message UI reçu depuis '
+            f'{elapsed:.1f}s (seuil={self._ui_link_timeout_sec:.1f}s) hors mission: retour home.'
+        )
+        self._trigger_idle_home_return('ui_timeout')
+
+    def _trigger_idle_home_return(self, reason: str) -> None:
+        with self._idle_home_lock:
+            if self._idle_home_in_progress:
+                return
+            self._idle_home_in_progress = True
+
+        def _worker():
+            try:
+                success = self._go_to_home_blocking()
+                if success:
+                    self.get_logger().info(
+                        f'🏠 Retour home hors mission termine (reason={reason}).'
+                    )
+                else:
+                    self.get_logger().warn(
+                        f'🏠 Retour home hors mission échoué (reason={reason}).'
+                    )
+            finally:
+                with self._idle_home_lock:
+                    self._idle_home_in_progress = False
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _go_to_home_blocking(self) -> bool:
+        """Retour home hors contexte action (pas de cancel goal externe)."""
+        self.get_logger().warn('🏠 Retour home automatique (watchdog liaison UI)...')
+
+        if not self._nav2_goto_client.wait_for_server(timeout_sec=5.0):
+            self.get_logger().error('NavigateToPose non disponible pour retour home automatique')
+            return False
+
+        home_goal = NavigateToPose.Goal()
+        home_goal.pose = self._make_pose(home_meters_coordinates_x, home_meters_coordinates_y)
+
+        send_future = self._nav2_goto_client.send_goal_async(home_goal)
+        while not send_future.done():
+            time.sleep(0.2)
+
+        try:
+            home_gh = send_future.result()
+        except Exception as exc:
+            self.get_logger().error(f'Erreur envoi goal home automatique: {exc}')
+            return False
+
+        if not home_gh.accepted:
+            self.get_logger().error('Goal home automatique refusé par Nav2')
+            return False
+
+        result_future = home_gh.get_result_async()
+        while not result_future.done():
+            time.sleep(0.2)
+
+        status = result_future.result().status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            self.get_logger().info(
+                f'🏠 Home automatique réussi: ({home_meters_coordinates_x}, {home_meters_coordinates_y})'
+            )
+            return True
+
+        self.get_logger().warn(f'🏠 Home automatique échoué (statut Nav2 : {status})')
+        return False
 
     # ── Utilitaires ──────────────────────────────────────────────────────────
 

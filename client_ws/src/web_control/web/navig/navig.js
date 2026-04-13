@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const files = JSON.parse(msg.data);
             updateSavedTrajectoriesList(files);
+            confirmPendingSaveFromFiles(files);
         } catch (e) {
             console.error('Erreur parsing liste trajectoires:', e);
         }
@@ -155,6 +156,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let costmapImageData = null;
     let costmapHideTimer = null;
     let pointAlertsTimer = null;
+    let pendingSave = null;
+    let pendingSaveTimeoutId = null;
 
     const COSTMAP_PRE_ALERT_MS = 4000;
     const COSTMAP_POST_ALERT_MS = 3000;
@@ -413,63 +416,60 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshTrajectoryMarkerStyles();
     }
 
+    function normalizeTrajectoryFilename(name) {
+        if (!name) return '';
+        return name.endsWith('.json') ? name : `${name}.json`;
+    }
+
+    function clearPendingSaveTimeout() {
+        if (pendingSaveTimeoutId) {
+            clearTimeout(pendingSaveTimeoutId);
+            pendingSaveTimeoutId = null;
+        }
+    }
+
+    function trackPendingSave(trajName) {
+        const expectedFilename = normalizeTrajectoryFilename(trajName);
+        pendingSave = {
+            trajName,
+            expectedFilename,
+            requestedAtMs: Date.now(),
+        };
+        clearPendingSaveTimeout();
+        pendingSaveTimeoutId = setTimeout(() => {
+            if (!pendingSave) return;
+            if (pendingSave.expectedFilename !== expectedFilename) return;
+            alert(`⚠️ Sauvegarde non confirmée pour "${trajName}" (pas de retour serveur).`);
+            pendingSave = null;
+            pendingSaveTimeoutId = null;
+        }, 12000);
+    }
+
+    function confirmPendingSaveFromFiles(files) {
+        if (!pendingSave || !Array.isArray(files) || files.length === 0) return;
+
+        const hasFile = files.includes(pendingSave.expectedFilename);
+        if (!hasFile) return;
+
+        const confirmedName = pendingSave.trajName;
+        clearPendingSaveTimeout();
+        pendingSave = null;
+        alert(`✅ Trajectoire "${confirmedName}" sauvegardée !`);
+    }
+
     function stopRiskVisualsNow() {
         if (costmapHideTimer) {
             clearTimeout(costmapHideTimer);
             costmapHideTimer = null;
         }
-            let pendingSave = null;
-            let pendingSaveTimeoutId = null;
         if (pointAlertsTimer) {
             clearTimeout(pointAlertsTimer);
             pointAlertsTimer = null;
         }
-
-            function normalizeTrajectoryFilename(name) {
-                if (!name) return '';
-                return name.endsWith('.json') ? name : `${name}.json`;
-            }
-
-            function clearPendingSaveTimeout() {
-                if (pendingSaveTimeoutId) {
-                    clearTimeout(pendingSaveTimeoutId);
-                    pendingSaveTimeoutId = null;
-                }
-            }
-
-            function trackPendingSave(trajName) {
-                const expectedFilename = normalizeTrajectoryFilename(trajName);
-                pendingSave = {
-                    trajName,
-                    expectedFilename,
-                    requestedAtMs: Date.now(),
-                };
-                clearPendingSaveTimeout();
-                pendingSaveTimeoutId = setTimeout(() => {
-                    if (!pendingSave) return;
-                    if (pendingSave.expectedFilename !== expectedFilename) return;
-                    alert(`⚠️ Sauvegarde non confirmée pour "${trajName}" (pas de retour serveur).`);
-                    pendingSave = null;
-                    pendingSaveTimeoutId = null;
-                }, 12000);
-            }
-
-            function confirmPendingSaveFromFiles(files) {
-                if (!pendingSave || !Array.isArray(files) || files.length === 0) return;
-
-                const hasFile = files.includes(pendingSave.expectedFilename);
-                if (!hasFile) return;
-
-                const confirmedName = pendingSave.trajName;
-                clearPendingSaveTimeout();
-                pendingSave = null;
-                alert(`✅ Trajectoire "${confirmedName}" sauvegardée !`);
-            }
         if (mapCostmapOverlay) {
             mapCostmapOverlay.style.display = 'none';
             mapCostmapOverlay.style.opacity = '0';
         }
-                    confirmPendingSaveFromFiles(files);
         clearTrajectoryPointAlerts();
     }
 
