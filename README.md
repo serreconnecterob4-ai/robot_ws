@@ -60,14 +60,20 @@ cd ~/ros2_project/robot_ws/robot_ws
 # Installer les dépendances
 rosdep install --from-paths src --ignore-src -r -y
 
-# Compiler
-colcon build
-
-# Sourcer l'environnement
-source install/setup.bash
-```
+# Compile et lance
+./launch.sh
 
 ---
+# Dans un 2ème terminal
+
+cd ~/ros2_project/robot_ws/robot_ws
+
+source /opt/ros/jazzy/setup.bash
+source install/setup.bash
+
+ros2 launch camera camera.launch.py
+
+```
 
 ## 4. Setup de `client_ws`
 
@@ -82,7 +88,10 @@ colcon build
 
 # Sourcer l'environnement
 source install/setup.bash
+
+ros2 launch web_control web_controll_full.launch.py
 ```
+
 ---
 
 ## 5. Vérification

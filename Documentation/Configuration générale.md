@@ -35,7 +35,15 @@ Unité : Coordonnées (x, y) en pixels
 
 On considère que l'origine (0,0) est en haut à gauche de l'image, (que x augmente vers la droite et que y augmente vers le bas).
 
+Valeur actuelle : `(x= 26.6833333333 , y= 184.133333333)` (pour map 1661x437)
         
+robot_ws/src/curt_mini/curt_mini/maps/image_rotate.py ---- Lignes 5-7
+````py
+px_original = 26.6833333333
+py_original = 184.133333333
+origin_width = 9966
+````
+
 **Représente la résolution de la carte, c'est à dire le nombre de pixels correspondant à une distance réelle.**
 
 Unité : mètre/pixels
@@ -62,12 +70,7 @@ const originPixel = { x: 160.1, y: 1104.8 };
 const metersPerPixel = 2.6617 / 100;
 const origin_map_size = { width: 9966, height: 2622 };
 ````
-robot_ws/src/curt_mini/curt_mini/maps/image_rotate.py ---- Lignes 5-7
-````py
-px_original = 26.6833333333
-py_original = 184.133333333
-origin_width = 9966
-````
+
 
 Pour map.jpg et map.pgm (les maps utilisés pour les calculs et l'affichage gazebo x Rviz)
 > robot_ws/src/navigation_pkg/maps/
@@ -217,3 +220,24 @@ Il peut être intéréssant de modifier :
 * Le i-frame interval (nombre d'images entre 2 images clés, plus il est grand, plus la compression est efficace, mais plus la latence est grande)
 
 pour trouver un équilibre entre qualité et latence selon votre situation.
+
+## Emplacement des dossiers galerie et trajectoires
+
+### Dossier galerie (robot)
+
+robot_ws/src/navigation_pkg/navigation_pkg/waypoint_action_server.py ---- Lignes 193
+
+````py
+gallery_path = os.path.expanduser('~/mission_gallery')
+````
+
+### Dossier galerie + trajectoires (client) 
+
+client_ws/src/web_control/backend_node.py ---- Lignes 132 - 133
+
+````py
+home_dir = os.path.expanduser('~')
+self.gallery_dir = os.path.join(home_dir, 'robot_gallery')
+self.trajectories_dir = os.path.join(home_dir, 'trajectories')
+````
+
