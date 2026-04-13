@@ -94,8 +94,8 @@ gz_spawn_model_launch_source
                 <horizontal>
                     <samples>640</samples>
                     <resolution>1</resolution>
-                    <min_angle>-1.396263</min_angle>
-                    <max_angle>1.396263</max_angle>
+                    <min_angle>-2</min_angle>
+                    <max_angle>2</max_angle>
                 </horizontal>
                 <vertical>
                     <samples>1</samples>
@@ -105,7 +105,7 @@ gz_spawn_model_launch_source
                 </vertical>
             </scan>
             <range>
-                <min>0.08</min>
+                <min>0.01</min>
                 <max>10.0</max>
                 <resolution>0.01</resolution>
             </range>
