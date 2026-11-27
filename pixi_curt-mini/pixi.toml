@@ -1,0 +1,18 @@
+[workspace]
+authors = ["Aline Baudry <baudry@isir.upmc.fr>"]
+channels = ["robostack-jazzy", "conda-forge"]
+name = "pixi_curt-mini"
+platforms = ["linux-64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+ros-jazzy-desktop = ">=0.11.0,<0.12"
+ros-jazzy-rmw-cyclonedds-cpp = ">=2.2.4,<3"
+ros-jazzy-cyclonedds = ">=0.10.5,<0.11"
+
+[activation.env]
+ROS_DISTRO = "jazzy"
+ROS_DOMAIN_ID = "42"
+RMW_IMPLEMENTATION = "rmw_cyclonedds_cpp"
